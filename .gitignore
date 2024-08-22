@@ -1,0 +1,41 @@
+# Ignore build directory
+build/
+
+# Ignore CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+
+# Ignore Visual Studio files
+*.sln
+*.vcxproj*
+*.user
+*.msbuild
+
+# Ignore compiled binary files
+*.exe
+*.dll
+*.obj
+*.o
+*.pdb
+*.lib
+*.log
+
+# Ignore generated files by GLAD
+libs/GLAD/src/glad.c
+
+# Ignore GLFW precompiled libraries if they are downloaded
+libs/GLFW/lib/
+
+# Ignore IDE-specific files (optional)
+.idea/
+.vscode/
+
+# Ignore system-specific files
+.DS_Store
+Thumbs.db
+
+# Ignore Doxygen files (if using)
+docs/

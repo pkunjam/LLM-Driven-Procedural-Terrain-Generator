@@ -1,179 +1,178 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <iostream>
+#include <vector>
+#include <cmath>
 
-using namespace  std;
+// Vertex Shader source code
+const char *vertexShaderSource = R"glsl(
+    #version 330 core
+    layout(location = 0) in vec3 aPos;
+    uniform mat4 transform;
+    void main() {
+        gl_Position = transform * vec4(aPos, 1.0);
+    }
+)glsl";
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+// Fragment Shader source code
+const char *fragmentShaderSource = R"glsl(
+    #version 330 core
+    out vec4 FragColor;
+    void main() {
+        FragColor = vec4(0.0f, 0.8f, 0.2f, 1.0f); // Green color
+    }
+)glsl";
+
+// Function to generate grid vertices and indices
+void generateGrid(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices)
 {
-    glViewport(0, 0, width, height);
+    float scale = 1.0f / (std::max(width, height) - 1); // Scale to fit in [-0.5, 0.5]
+    for (int z = 0; z < height; ++z)
+    {
+        for (int x = 0; x < width; ++x)
+        {
+            float xPos = (x * scale) - 0.5f;
+            float zPos = (z * scale) - 0.5f;
+            float yPos = 0.1f * sin(10.0f * (xPos * zPos)); // Example height function
+
+            vertices.push_back(xPos);
+            vertices.push_back(yPos);
+            vertices.push_back(zPos);
+
+            if (x < width - 1 && z < height - 1)
+            {
+                int start = z * width + x;
+                indices.push_back(start);
+                indices.push_back(start + width);
+                indices.push_back(start + 1);
+                indices.push_back(start + 1);
+                indices.push_back(start + width);
+                indices.push_back(start + width + 1);
+            }
+        }
+    }
 }
 
 int main()
 {
-    //Initialize GLFW
+    // Initialize GLFW
     if (!glfwInit())
     {
-        cerr << "Failed to initialize GLFW" << std::endl;
+        std::cerr << "Failed to initialize GLFW" << std::endl;
         return -1;
     }
 
-    // Configure GLFW for OpenGL 3.3 Core Profile
+    // Set up the GLFW window properties: OpenGL version 3.3, core profile
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    // Create a window
-    GLFWwindow* window = glfwCreateWindow(800, 600, "OpenGL Window", nullptr, nullptr);
-
-    if(!window)
+    // Create the window
+    GLFWwindow *window = glfwCreateWindow(800, 600, "Procedural Terrain Grid", nullptr, nullptr);
+    if (!window)
     {
-        cerr << "Failed to create GLFW window" << endl;
+        std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
         return -1;
     }
-
     glfwMakeContextCurrent(window);
 
-    // Load OpenGL function pointers using GLAD
-    if(!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    // Initialize GLAD
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
-        cerr << "Failed to initialize GLAD" << endl;
+        std::cerr << "Failed to initialize GLAD" << std::endl;
         return -1;
     }
 
-    // Set viewport size and callback for window resizing
+    // Set the viewport
     glViewport(0, 0, 800, 600);
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-    
-
-    // Rendering a Traingle
-
-    // Define the vertices of a triangle
-    float vertices[] = {
-        -0.5f, -0.5f, 0.0f, // Bottom-left
-        0.5, -0.5, 0.0f, // Bottom-right
-        0.0f, 0.5f, 0.0f // Top
-    };
-
-    // Generate and bind a Vertex Array Object (VAO)
-    unsigned int VAO;
-    glGenVertexArrays(1, &VAO);
-    glBindVertexArray(VAO);
-
-    // Generate and bind a Vertex Buffer Object (VBO)
-    unsigned int VBO;
-    glGenBuffers(1, &VBO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    // Specify the layout of the vertex data
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*) 0);
-    glEnableVertexAttribArray(0);
-
-    // Unbind the VBO and VAO
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
-
-    // Vertex shader source code
-    const char* vertexShaderSource = R"glsl(
-        #version 330 core
-        layout(location = 0) in vec3 aPos;
-
-        void main() {
-            gl_Position = vec4(aPos,1.0);
-        }
-    )glsl";
-
-    // Fragment shader source code
-    const char* fragmentShaderSource = R"glsl(
-        #version 330 core
-        out vec4 FragColor;
-
-        void main() {
-            FragColor = vec4(1.0, 0.5, 0.2, 1.0); // Orange Color
-        }
-    )glsl";
 
     // Compile Vertex Shader
     unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
     glCompileShader(vertexShader);
 
-    // Check for vertex shader compile errors
-    int success;
-    char infoLog[512];
-    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-    if(!success)
-    {
-        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-        cerr << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << endl;
-    }
-
     // Compile Fragment Shader
     unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
     glCompileShader(fragmentShader);
-    
-    // Check for fragment shader compile errors
-    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-    if(!success)
-    {
-        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-        cerr << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << endl;
-    }
 
-    // Link shaders into a shader program
+    // Link shaders to create the shader program
     unsigned int shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
     glLinkProgram(shaderProgram);
 
-    // Check for linking errors
-    glGetShaderiv(shaderProgram, GL_LINK_STATUS, &success);
-    if (!success)
-    {
-        glGetShaderInfoLog(shaderProgram, 512, NULL, infoLog);
-        cerr << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << endl;
-    }
-
-    // Delete the shaders as they're linked into our program now and no longer needed
+    // Delete the shaders as they’re linked into our program now and no longer necessary
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // Rendering loop
+    // Generate grid vertices and indices
+    std::vector<float> vertices;
+    std::vector<unsigned int> indices;
+    generateGrid(100, 100, vertices, indices); // Create a 100x100 grid
+
+    // Set up vertex data and buffer(s) and configure vertex attributes
+    unsigned int VBO, VAO, EBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    glBindVertexArray(VAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), &vertices[0], GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), &indices[0], GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+    glEnableVertexAttribArray(0);
+
+    // Unbind VBO and VAO to avoid modifying them by mistake
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    // Set the clear color (background color)
+    glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+
+    // Main loop to render the scene
     while (!glfwWindowShouldClose(window))
     {
-        //Process input
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-        {
-            glfwSetWindowShouldClose(window, true);
-        }
-
-        // Render here (clear the screen)
-        glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+        // Clear the color buffer
         glClear(GL_COLOR_BUFFER_BIT);
 
         // Use the shader program
         glUseProgram(shaderProgram);
 
-        // Bind the VAO (the triangle)
+        // Create a transformation matrix
+        glm::mat4 transform = glm::mat4(1.0f);
+        transform = glm::rotate(transform, (float)glfwGetTime() * 0.5f, glm::vec3(0.0f, 1.0f, 0.0f));
+
+        // Get the matrix's uniform location and set its value
+        int transformLoc = glGetUniformLocation(shaderProgram, "transform");
+        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
+
+        // Bind the VAO
         glBindVertexArray(VAO);
 
-        // Draw the triangle
-        glDrawArrays(GL_TRIANGLES, 0,3);
+        // Draw the grid
+        glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
 
-        //Unbind the VAO
-        glBindVertexArray(0);
-
-        // Swap buffers and poll events
+        // Swap the buffers to display the result
         glfwSwapBuffers(window);
+
+        // Poll for and process events
         glfwPollEvents();
     }
 
-    // Clean up resources
+    // Clean up and delete resources
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
+    glDeleteBuffers(1, &EBO);
     glDeleteProgram(shaderProgram);
 
     // Clean up and exit

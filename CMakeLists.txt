@@ -13,6 +13,7 @@ target_include_directories(glad PUBLIC libs/GLAD/include)
 # Include directories
 include_directories(libs/GLFW/include libs/GLAD/include)
 include_directories(glm)
+include_directories(src/)
 
 # Add source files
 add_executable(OpenGLProject src/main.cpp)

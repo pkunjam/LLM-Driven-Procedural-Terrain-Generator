@@ -8,15 +8,7 @@
 #include <cmath>
 #include <PerlinNoise.cpp>
 
-PerlinNoise perlin;
-
-// Perlin noise function (simplified)
-float perlinNoise(float x, float z)
-{
-    // Placeholder for Perlin noise implementation
-    // Use a proper Perlin noise function or library in a real project
-    return sin(x * 10.0f) * cos(z * 10.0f);
-}
+PerlinNoise perlin; // Create a Perlin noise object
 
 // Vertex Shader source code
 const char *vertexShaderSource = R"glsl(
@@ -33,15 +25,13 @@ const char *fragmentShaderSource = R"glsl(
     #version 330 core
     out vec4 FragColor;
     void main() {
-        FragColor = vec4(0.0f, 0.8f, 0.2f, 1.0f); // Green color
+        FragColor = vec4(0.53, 0.44, 0.26, 1.0);
     }
 )glsl";
 
-
-// Function to generate grid vertices and indices with Perlin noise
-void generateGrid(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices)
+// Function to generate grid vertices and indices using advanced Perlin noise
+void generateGrid(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices, int octaves, float persistence)
 {
-    
     float scale = 1.0f / (std::max(width, height) - 1); // Scale to fit in [-0.5, 0.5]
     for (int z = 0; z < height; ++z)
     {
@@ -49,7 +39,7 @@ void generateGrid(int width, int height, std::vector<float> &vertices, std::vect
         {
             float xPos = (x * scale) - 0.5f;
             float zPos = (z * scale) - 0.5f;
-            float yPos = 0.1f * perlin.noise(xPos * 10.0f, zPos * 10.0f); // Use Perlin noise for height
+            float yPos = perlin.noise(xPos, zPos, octaves, persistence); // Use advanced Perlin noise
 
             vertices.push_back(xPos);
             vertices.push_back(yPos);
@@ -84,7 +74,7 @@ int main()
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // Create the window
-    GLFWwindow *window = glfwCreateWindow(800, 600, "Perlin Noise Terrain Grid", nullptr, nullptr);
+    GLFWwindow *window = glfwCreateWindow(800, 600, "Advanced Perlin Noise Terrain Grid", nullptr, nullptr);
     if (!window)
     {
         std::cerr << "Failed to create GLFW window" << std::endl;
@@ -123,10 +113,10 @@ int main()
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // Generate grid vertices and indices using Perlin noise
+    // Generate grid vertices and indices using advanced Perlin noise
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
-    generateGrid(100, 100, vertices, indices); // Create a 100x100 grid
+    generateGrid(100, 100, vertices, indices, 5, 0.5f); // Create a 100x100 grid with 5 octaves and 0.5 persistence
 
     // Set up vertex data and buffer(s) and configure vertex attributes
     unsigned int VBO, VAO, EBO;
@@ -150,7 +140,7 @@ int main()
     glBindVertexArray(0);
 
     // Set the clear color (background color)
-    glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
     // Main loop to render the scene
     while (!glfwWindowShouldClose(window))
@@ -167,6 +157,7 @@ int main()
 
         // Get the matrix's uniform location and set its value
         int transformLoc = glGetUniformLocation(shaderProgram, "transform");
+        transform = glm::translate(transform, glm::vec3(0.0f, -0.5f, 0.0f));
         glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
 
         // Bind the VAO

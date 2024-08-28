@@ -12,7 +12,7 @@
 #include "stb_image.h"
 
 // Global Variables
-ArcballCamera camera(glm::vec3(0.0f, 0.0f, 0.0f), 5.0f, -90.0f, 20.0f);
+ArcballCamera camera(glm::vec3(0.0f, 0.5f, 0.0f), 2.0f, -90.0f, -20.0f);
 PerlinNoise perlin;
 bool leftMousePressed = false;
 bool rightMousePressed = false;

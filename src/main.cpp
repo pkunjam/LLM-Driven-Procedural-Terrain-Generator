@@ -80,7 +80,8 @@ int main()
     // Generate Advanced Terrain Grid
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
-    generateAdvancedTerrain(100, 100, vertices, indices);
+    std::vector<float> normals; // New vector for normals
+    generateAdvancedTerrain(100, 100, vertices, indices, normals);
 
     // Create Shader Program
     unsigned int shaderProgram = createShaderProgram();
@@ -93,7 +94,10 @@ int main()
 
     // Setup Buffers
     unsigned int VAO, VBO, EBO;
-    setupBuffers(VAO, VBO, EBO, vertices, indices);
+    setupBuffers(VAO, VBO, EBO, vertices, indices, normals);
+
+    // Lighting information
+    glm::vec3 lightPos(1.2f, 1.0f, 2.0f);
 
     // Main Render Loop
     while (!glfwWindowShouldClose(window))
@@ -116,6 +120,10 @@ int main()
 
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, snowTexture);
+
+        // Pass Lighting Information to Shader
+        glUniform3fv(glGetUniformLocation(shaderProgram, "lightPos"), 1, glm::value_ptr(lightPos));
+        glUniform3fv(glGetUniformLocation(shaderProgram, "viewPos"), 1, glm::value_ptr(camera.GetCameraPosition()));
 
         // View/Projection Transformations
         glm::mat4 view = camera.GetViewMatrix();
@@ -210,7 +218,7 @@ void scroll_callback(GLFWwindow *window, double xOffset, double yOffset)
 }
 
 // Generate Advanced Terrain with Multiple Layers of Perlin Noise
-void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices)
+void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices, std::vector<float> &normals)
 {
     float scale = 1.0f / (std::max(width, height) - 1);
 
@@ -219,6 +227,9 @@ void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices
     float lacunarity = 2.0f;
     float baseAmplitude = 0.5f;
     float baseFrequency = 0.4f;
+
+    // Initialize the normals vector to zero
+    normals.resize(vertices.size(), 0.0f);
 
     for (int z = 0; z < height; ++z)
     {
@@ -257,6 +268,45 @@ void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices
             }
         }
     }
+
+    // Calculate normals
+    for (size_t i = 0; i < indices.size(); i += 3)
+    {
+        unsigned int i0 = indices[i];
+        unsigned int i1 = indices[i + 1];
+        unsigned int i2 = indices[i + 2];
+
+        glm::vec3 v0(vertices[3 * i0], vertices[3 * i0 + 1], vertices[3 * i0 + 2]);
+        glm::vec3 v1(vertices[3 * i1], vertices[3 * i1 + 1], vertices[3 * i1 + 2]);
+        glm::vec3 v2(vertices[3 * i2], vertices[3 * i2 + 1], vertices[3 * i2 + 2]);
+
+        glm::vec3 edge1 = v1 - v0;
+        glm::vec3 edge2 = v2 - v0;
+        glm::vec3 normal = glm::normalize(glm::cross(edge1, edge2));
+
+        normals[3 * i0] += normal.x;
+        normals[3 * i0 + 1] += normal.y;
+        normals[3 * i0 + 2] += normal.z;
+
+        normals[3 * i1] += normal.x;
+        normals[3 * i1 + 1] += normal.y;
+        normals[3 * i1 + 2] += normal.z;
+
+        normals[3 * i2] += normal.x;
+        normals[3 * i2 + 1] += normal.y;
+        normals[3 * i2 + 2] += normal.z;
+    }
+
+    // Normalize the normals
+    for (size_t i = 0; i < normals.size(); i += 3)
+    {
+        glm::vec3 normal(normals[i], normals[i + 1], normals[i + 2]);
+        normal = glm::normalize(normal);
+
+        normals[i] = normal.x;
+        normals[i + 1] = normal.y;
+        normals[i + 2] = normal.z;
+    }
 }
 
 // Create Shader Program
@@ -266,14 +316,18 @@ unsigned int createShaderProgram()
         #version 330 core
         layout(location = 0) in vec3 aPos;
         layout(location = 1) in vec2 aTexCoord;
+        layout(location = 2) in vec3 aNormal;
+
         out vec2 TexCoords;
-        out float Height;
+        out vec3 FragPos;
+        out vec3 Normal;
 
         uniform mat4 transform;
 
         void main() {
             TexCoords = aTexCoord;
-            Height = aPos.y;
+            FragPos = vec3(transform * vec4(aPos, 1.0));
+            Normal = mat3(transpose(inverse(transform))) * aNormal; // Correct the normal based on transformations
             gl_Position = transform * vec4(aPos, 1.0);
         }
     )glsl";
@@ -282,23 +336,50 @@ unsigned int createShaderProgram()
         #version 330 core
         in vec2 TexCoords;
         in float Height;
+        in vec3 FragPos;
+        in vec3 Normal;
         out vec4 FragColor;
+
+        uniform vec3 lightPos;
+        uniform vec3 viewPos;
 
         uniform sampler2D grassTexture;
         uniform sampler2D rockTexture;
         uniform sampler2D snowTexture;
 
         void main() {
+            // Ambient lighting
+            float ambientStrength = 0.1;
+            vec3 ambient = ambientStrength * vec3(1.0);
+
+            // Diffuse lighting
+            vec3 lightDir = normalize(lightPos - FragPos);
+            float diff = max(dot(Normal, lightDir), 0.0);
+            vec3 diffuse = diff * vec3(1.0);
+
+            // Specular lighting
+            float specularStrength = 0.5;
+            vec3 viewDir = normalize(viewPos - FragPos);
+            vec3 reflectDir = reflect(-lightDir, Normal);
+            float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
+            vec3 specular = specularStrength * spec * vec3(1.0);
+
+            vec3 lighting = (ambient + diffuse + specular);
+
+            // Texture blending
             vec4 grassColor = texture(grassTexture, TexCoords);
             vec4 rockColor = texture(rockTexture, TexCoords);
             vec4 snowColor = texture(snowTexture, TexCoords);
 
+            vec4 baseColor;
             if (Height < 0.3)
-                FragColor = grassColor;
+                baseColor = grassColor;
             else if (Height < 0.6)
-                FragColor = mix(grassColor, rockColor, (Height - 0.3) / 0.3);
+                baseColor = mix(grassColor, rockColor, (Height - 0.3) / 0.3);
             else
-                FragColor = mix(rockColor, snowColor, (Height - 0.6) / 0.4);
+                baseColor = mix(rockColor, snowColor, (Height - 0.6) / 0.4);
+
+            FragColor = vec4(lighting, 1.0) * baseColor;
         }
     )glsl";
 
@@ -394,8 +475,25 @@ unsigned int loadTexture(const char *path)
 }
 
 // Setup Buffers
-void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const std::vector<float> &vertices, const std::vector<unsigned int> &indices)
+void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const std::vector<float> &vertices, const std::vector<unsigned int> &indices, const std::vector<float> &normals)
 {
+    std::vector<float> vertexData;
+
+    // Combine vertices and normals
+    for (size_t i = 0; i < vertices.size() / 5; ++i)
+    {
+        vertexData.push_back(vertices[i * 5]);
+        vertexData.push_back(vertices[i * 5 + 1]);
+        vertexData.push_back(vertices[i * 5 + 2]);
+
+        vertexData.push_back(vertices[i * 5 + 3]); // Texture X coordinate
+        vertexData.push_back(vertices[i * 5 + 4]); // Texture Y coordinate
+
+        vertexData.push_back(normals[i * 3]);
+        vertexData.push_back(normals[i * 3 + 1]);
+        vertexData.push_back(normals[i * 3 + 2]);
+    }
+
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
     glGenBuffers(1, &EBO);
@@ -403,16 +501,22 @@ void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), &vertices[0], GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), &vertexData[0], GL_STATIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), &indices[0], GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)0);
+    // Vertex positions
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(0);
 
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)(3 * sizeof(float)));
+    // Texture coordinates
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+
+    // Normals
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(5 * sizeof(float)));
+    glEnableVertexAttribArray(2);
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);

@@ -6,9 +6,9 @@ The project is ideal for those interested in learning about computer graphics, p
 ### Features
 
 * **Procedural Terrain Generation:** Uses Perlin noise to generate realistic terrain with adjustable parameters like octaves, persistence, and frequency.
-* **Normal Mapping:** Adds fine details to the terrain surface without increasing the mesh complexity.
-* **Water Rendering:** Implements a reflective and refractive water surface with wave animations.
-* **Skybox:** Surrounds the scene with a skybox for a fully immersive environment.
+* **Normal Mapping:** Adds fine details to the terrain surface without increasing the mesh complexity. [In Progress]
+* **Water Rendering:** Implements a reflective and refractive water surface with wave animations. [In Progress]
+* **Skybox:** Surrounds the scene with a skybox for a fully immersive environment. [In Progress]
 * **Basic Lighting:** Incorporates Phong lighting for ambient, diffuse, and specular reflections.
 * **Camera Control:** An Arcball camera system allows for smooth panning, rotation, and zoom around the terrain.
 

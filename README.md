@@ -79,7 +79,7 @@ Don't forget to give the project a star! Thanks again!
 
 ## License
 
-This project is licensed under the MIT License. See `LICENSE.txt` for more details.
+This project is licensed under the GNU General Public License v3.0 License. See `LICENSE.txt` for more details.
 
 ## Acknowledgments
 

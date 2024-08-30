@@ -3,7 +3,7 @@
 This project is a Procedural Terrain Generator implemented in C++ and OpenGL. It showcases various advanced rendering techniques, including Perlin noise-based terrain generation, normal mapping, water rendering, and a skybox for realistic visuals. 
 The project is ideal for those interested in learning about computer graphics, procedural content generation, and modern OpenGL practices.
 
-Check out the demo video -
+Click on the image below to check out the demo video -
 
 [![Demo Video](https://github.com/pkunjam/Procedural-Terrain-Generator/blob/main/img/Terrain%20generator.png)](https://youtu.be/fivYrQYdYmk)
 

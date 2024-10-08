@@ -26,11 +26,7 @@ target_link_libraries(OpenGLProject glfw glad)
 
 # set(CMAKE_TOOLCHAIN_FILE "vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
 
-# set(CMAKE_PREFIX_PATH "vcpkg/installed/x64-windows/share/curl" ${CMAKE_PREFIX_PATH})
-# find_package(CURL CONFIG REQUIRED)
-# find_package(jsoncpp CONFIG REQUIRED)
-
-# target_link_libraries(OpenGLProject PRIVATE CURL::libcurl jsoncpp_lib)
-
-# find_package(ZLIB REQUIRED)
-# target_link_libraries(OpenGLProject PRIVATE ZLIB::ZLIB)
+# find_package(CURL REQUIRED)
+include_directories(vcpkg/installed/x64-windows/lib)
+include_directories(vcpkg/installed/x64-windows/include)
+# target_link_libraries(OpenGLProject PRIVATE CURL::libcurl)

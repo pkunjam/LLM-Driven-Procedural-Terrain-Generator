@@ -12,6 +12,11 @@
 #include "stb_image.h"
 #include "UserPrompt.h"
 
+// Global variables for terrain parameters
+float baseFrequency = 0.4f;
+float baseAmplitude = 0.5f;
+int numOctaves = 4;
+
 // Global Variables
 ArcballCamera camera(glm::vec3(0.0f, 0.5f, 0.0f), 2.0f, -90.0f, -20.0f);
 PerlinNoise perlin;
@@ -439,6 +444,6 @@ void checkForUserPrompt(GLFWwindow *window)
     if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS)
     {
         std::string userPrompt = getUserPrompt();
-        std::cout << "Received prompt: " << userPrompt << std::endl;
+        handleUserPrompt(userPrompt);
     }
 }

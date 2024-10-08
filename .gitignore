@@ -1,6 +1,7 @@
 # Ignore build directory
 build/
 !build/
+vcpkg/
 
 # Ignore CMake generated files
 CMakeFiles/

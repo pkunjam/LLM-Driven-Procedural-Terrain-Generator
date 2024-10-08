@@ -10,6 +10,7 @@
 #include "ArcballCamera.cpp"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#include "UserPrompt.h"
 
 // Global Variables
 ArcballCamera camera(glm::vec3(0.0f, 0.5f, 0.0f), 2.0f, -90.0f, -20.0f);
@@ -28,6 +29,7 @@ unsigned int createShaderProgram();
 unsigned int loadTexture(const char *path);
 void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const std::vector<float> &vertices, const std::vector<unsigned int> &indices);
 void checkOpenGLError();
+void checkForUserPrompt(GLFWwindow* window);
 
 // Main Function
 int main()
@@ -100,6 +102,9 @@ int main()
     {
         // Process Input
         processInput(window);
+
+        // check if the 'P' key is pressed for user input
+        checkForUserPrompt(window);
 
         // Clear Screen
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -425,5 +430,15 @@ void checkOpenGLError()
     while ((err = glGetError()) != GL_NO_ERROR)
     {
         std::cerr << "OpenGL error: " << err << std::endl;
+    }
+}
+
+// Function to check for key press (for user prompt)
+void checkForUserPrompt(GLFWwindow *window)
+{
+    if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS)
+    {
+        std::string userPrompt = getUserPrompt();
+        std::cout << "Received prompt: " << userPrompt << std::endl;
     }
 }

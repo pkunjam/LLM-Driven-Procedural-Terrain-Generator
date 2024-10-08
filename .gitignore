@@ -1,5 +1,6 @@
 # Ignore build directory
 build/
+!build/
 
 # Ignore CMake generated files
 CMakeFiles/
@@ -23,19 +24,11 @@ Makefile
 *.lib
 *.log
 
-# Ignore generated files by GLAD
-libs/GLAD/src/glad.c
-
-# Ignore GLFW precompiled libraries if they are downloaded
-libs/GLFW/lib/
-
 # Ignore IDE-specific files (optional)
 .idea/
 .vscode/
+.vs/
 
 # Ignore system-specific files
 .DS_Store
 Thumbs.db
-
-# Ignore Doxygen files (if using)
-docs/

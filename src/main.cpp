@@ -13,9 +13,13 @@
 #include "UserPrompt.h"
 
 // Global variables for terrain parameters
-float baseFrequency = 0.4f;
-float baseAmplitude = 0.5f;
 int numOctaves = 4;
+float persistence = 0.5f;
+float lacunarity = 2.0f;
+float baseAmplitude = 0.5f;
+float baseFrequency = 0.4f;
+
+unsigned int VAO, VBO, EBO;
 
 // Global Variables
 ArcballCamera camera(glm::vec3(0.0f, 0.5f, 0.0f), 2.0f, -90.0f, -20.0f);
@@ -99,7 +103,6 @@ int main()
     glUniform1i(glGetUniformLocation(shaderProgram, "snowTexture"), 2);
 
     // Setup Buffers
-    unsigned int VAO, VBO, EBO;
     setupBuffers(VAO, VBO, EBO, vertices, indices);
 
     // Main Render Loop
@@ -223,12 +226,6 @@ void scroll_callback(GLFWwindow *window, double xOffset, double yOffset)
 void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices)
 {
     float scale = 1.0f / (std::max(width, height) - 1);
-
-    int numOctaves = 4;
-    float persistence = 0.5f;
-    float lacunarity = 2.0f;
-    float baseAmplitude = 0.5f;
-    float baseFrequency = 0.4f;
 
     for (int z = 0; z < height; ++z)
     {

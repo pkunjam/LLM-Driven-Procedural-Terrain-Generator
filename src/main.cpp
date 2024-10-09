@@ -19,6 +19,9 @@ float lacunarity = 2.0f;
 float baseAmplitude = 0.5f;
 float baseFrequency = 0.4f;
 
+float waterLevel = 0.5f;         // Initial water level
+unsigned int waterVAO, waterVBO; // Water plane buffers
+
 unsigned int VAO, VBO, EBO;
 
 // Global Variables
@@ -39,6 +42,10 @@ unsigned int loadTexture(const char *path);
 void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const std::vector<float> &vertices, const std::vector<unsigned int> &indices);
 void checkOpenGLError();
 void checkForUserPrompt(GLFWwindow* window);
+
+void generateWaterPlane(std::vector<float> &waterVertices, float width, float depth);
+void setupWaterBuffers(unsigned int &waterVAO, unsigned int &waterVBO, const std::vector<float> &waterVertices);
+unsigned int createWaterShaderProgram();
 
 // Main Function
 int main()
@@ -105,6 +112,16 @@ int main()
     // Setup Buffers
     setupBuffers(VAO, VBO, EBO, vertices, indices);
 
+    // Generate Water Plane
+    std::vector<float> waterVertices;
+    generateWaterPlane(waterVertices, 1.0f, 1.0f); // Adjust width and depth as needed
+
+    // Create Water Shader Program
+    unsigned int waterShaderProgram = createWaterShaderProgram();
+
+    // Setup Water Buffers
+    setupWaterBuffers(waterVAO, waterVBO, waterVertices);
+
     // Main Render Loop
     while (!glfwWindowShouldClose(window))
     {
@@ -144,6 +161,26 @@ int main()
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
 
+        // Render Water Plane
+        glUseProgram(waterShaderProgram);
+
+        // Set the transformation matrix for the water shader
+        int waterTransformLoc = glGetUniformLocation(waterShaderProgram, "transform");
+        glUniformMatrix4fv(waterTransformLoc, 1, GL_FALSE, glm::value_ptr(mvp));
+
+        // Set the water color (RGBA)
+        glUniform4f(glGetUniformLocation(waterShaderProgram, "waterColor"), 0.0f, 0.3f, 0.6f, 0.5f); // Adjust color and transparency as desired
+
+        float timeValue = glfwGetTime(); // Get the elapsed time
+        glUniform1f(glGetUniformLocation(waterShaderProgram, "time"), timeValue);
+
+        glm::vec3 viewPosition = camera.Position;
+        glUniform3fv(glGetUniformLocation(waterShaderProgram, "viewPos"), 1, glm::value_ptr(viewPosition));
+
+        // Bind Water VAO and draw
+        glBindVertexArray(waterVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+
         // Swap Buffers and Poll Events
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -157,6 +194,11 @@ int main()
     glDeleteBuffers(1, &VBO);
     glDeleteBuffers(1, &EBO);
     glDeleteProgram(shaderProgram);
+
+    // Delete water resources
+    glDeleteVertexArrays(1, &waterVAO);
+    glDeleteBuffers(1, &waterVBO);
+    glDeleteProgram(waterShaderProgram);
 
     // Terminate GLFW
     glfwTerminate();
@@ -266,6 +308,18 @@ void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices
     }
 }
 
+void generateWaterPlane(std::vector<float> &waterVertices, float width, float depth)
+{
+    waterVertices = {
+        -0.5f * width, waterLevel, -0.5f * depth,
+        0.5f * width, waterLevel, -0.5f * depth,
+        -0.5f * width, waterLevel, 0.5f * depth,
+
+        0.5f * width, waterLevel, -0.5f * depth,
+        0.5f * width, waterLevel, 0.5f * depth,
+        -0.5f * width, waterLevel, 0.5f * depth};
+}
+
 // Create Shader Program
 unsigned int createShaderProgram()
 {
@@ -361,6 +415,94 @@ unsigned int createShaderProgram()
     return shaderProgram;
 }
 
+unsigned int createWaterShaderProgram()
+{
+    const char *waterVertexShaderSource = R"glsl(
+        #version 330 core
+        layout(location = 0) in vec3 aPos;
+
+        uniform mat4 transform;
+        uniform float time;  // Add time for dynamic water movement
+
+        void main() {
+            // Simulate water movement using a sine wave
+            vec3 position = aPos;
+            position.y += sin(position.x * 10.0 + time) * 0.05; // Adjust wave frequency and amplitude
+
+            gl_Position = transform * vec4(position, 1.0);
+        }
+    )glsl";
+
+    const char *waterFragmentShaderSource = R"glsl(
+        #version 330 core
+        out vec4 FragColor;
+
+        uniform vec4 waterColor;
+        uniform vec3 viewPos;  // Camera position for Fresnel effect
+
+        void main() {
+            // Fresnel effect based on the angle between view and surface normal
+            float fresnel = dot(normalize(viewPos), vec3(0.0, 1.0, 0.0)); // Water is flat, so normal is (0, 1, 0)
+            fresnel = clamp(1.0 - fresnel, 0.0, 1.0);  // Control strength of reflection
+
+            // Final water color with Fresnel effect
+            vec4 finalColor = mix(waterColor, vec4(1.0, 1.0, 1.0, 1.0), fresnel * 0.2);  // Blend with white to simulate reflection
+            FragColor = finalColor;
+        }
+    )glsl";
+
+    // Compile Vertex Shader
+    unsigned int waterVertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(waterVertexShader, 1, &waterVertexShaderSource, NULL);
+    glCompileShader(waterVertexShader);
+
+    // Check for Vertex Shader compilation errors
+    int success;
+    char infoLog[512];
+    glGetShaderiv(waterVertexShader, GL_COMPILE_STATUS, &success);
+    if (!success)
+    {
+        glGetShaderInfoLog(waterVertexShader, 512, NULL, infoLog);
+        std::cerr << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n"
+                  << infoLog << std::endl;
+    }
+
+    // Compile Fragment Shader
+    unsigned int waterFragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(waterFragmentShader, 1, &waterFragmentShaderSource, NULL);
+    glCompileShader(waterFragmentShader);
+
+    // Check for Fragment Shader compilation errors
+    glGetShaderiv(waterFragmentShader, GL_COMPILE_STATUS, &success);
+    if (!success)
+    {
+        glGetShaderInfoLog(waterFragmentShader, 512, NULL, infoLog);
+        std::cerr << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n"
+                  << infoLog << std::endl;
+    }
+
+    // Link Shaders to Create the Shader Program
+    unsigned int waterShaderProgram = glCreateProgram();
+    glAttachShader(waterShaderProgram, waterVertexShader);
+    glAttachShader(waterShaderProgram, waterFragmentShader);
+    glLinkProgram(waterShaderProgram);
+
+    // Check for Linking errors
+    glGetProgramiv(waterShaderProgram, GL_LINK_STATUS, &success);
+    if (!success)
+    {
+        glGetProgramInfoLog(waterShaderProgram, 512, NULL, infoLog);
+        std::cerr << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n"
+                  << infoLog << std::endl;
+    }
+
+    // Clean up Shaders as they're now linked into the program
+    glDeleteShader(waterVertexShader);
+    glDeleteShader(waterFragmentShader);
+
+    return waterShaderProgram; // Return the water shader program ID
+}
+
 // Load Texture
 unsigned int loadTexture(const char *path)
 {
@@ -422,6 +564,23 @@ void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const
     glEnableVertexAttribArray(1);
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
+void setupWaterBuffers(unsigned int &waterVAO, unsigned int &waterVBO, const std::vector<float> &waterVertices)
+{
+    glGenVertexArrays(1, &waterVAO);
+    glGenBuffers(1, &waterVBO);
+
+    glBindVertexArray(waterVAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, waterVBO);
+    glBufferData(GL_ARRAY_BUFFER, waterVertices.size() * sizeof(float), &waterVertices[0], GL_STATIC_DRAW);
+
+    // Position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+    glEnableVertexAttribArray(0);
+
     glBindVertexArray(0);
 }
 

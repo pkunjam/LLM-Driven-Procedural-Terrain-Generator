@@ -26,7 +26,7 @@ public:
         direction.z = sin(glm::radians(Yaw)) * cos(glm::radians(Pitch));
 
         glm::vec3 position = Target - direction * Distance;
-        return glm::lookAt(position, Target, glm::vec3(0.0f, -1.0f, 0.0f));
+        return glm::lookAt(position, Target, glm::vec3(0.0f, 1.0f, 0.0f));
     }
 
     void ProcessMouseMovement(float xOffset, float yOffset, bool rotate)

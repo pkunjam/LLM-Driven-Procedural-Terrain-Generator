@@ -49,7 +49,7 @@ void setupWaterBuffers(unsigned int &waterVAO, unsigned int &waterVBO, const std
 unsigned int createWaterShaderProgram();
 
 // lighting
-glm::vec3 lightPos = glm::vec3(5.0f, 10.0f, 5.0f);
+glm::vec3 lightPos(0.0f, 10.0f, 0.0f); // Light positioned above the terrain and water
 
 // Main Function
 int main()
@@ -165,10 +165,6 @@ int main()
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, snowTexture);
 
-        // Pass Lighting Information to Shader
-        glUniform3fv(glGetUniformLocation(shaderProgram, "lightPos"), 1, glm::value_ptr(lightPos));
-        glUniform3fv(glGetUniformLocation(shaderProgram, "viewPos"), 1, glm::value_ptr(camera.GetCameraPosition()));
-
         // View/Projection Transformations
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
@@ -178,6 +174,11 @@ int main()
         // Send MVP Matrix to Shader
         int mvpLoc = glGetUniformLocation(shaderProgram, "transform");
         glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+
+        // Pass Lighting Information to Shader
+        glUniform3fv(glGetUniformLocation(shaderProgram, "lightPos"), 1, glm::value_ptr(lightPos));
+        glUniform3fv(glGetUniformLocation(shaderProgram, "viewPos"), 1, glm::value_ptr(camera.GetCameraPosition()));
 
         // Bind VAO and Draw the Grid
         glBindVertexArray(VAO);
@@ -196,6 +197,8 @@ int main()
         float timeValue = glfwGetTime(); // Get the elapsed time
         glUniform1f(glGetUniformLocation(waterShaderProgram, "time"), timeValue);
 
+        glUniform3fv(glGetUniformLocation(waterShaderProgram, "lightPos"), 1, glm::value_ptr(lightPos));
+        
         glm::vec3 viewPosition = camera.GetCameraPosition();
         glUniform3fv(glGetUniformLocation(waterShaderProgram, "viewPos"), 1, glm::value_ptr(viewPosition));
 
@@ -422,64 +425,78 @@ unsigned int createShaderProgram()
 {
     const char *vertexShaderSource = R"glsl(
         #version 330 core
-        layout(location = 0) in vec3 aPos;
-        layout(location = 1) in vec2 aTexCoord;
-        layout(location = 2) in vec3 aNormal;
+        layout(location = 0) in vec3 aPos;         // Position attribute
+        layout(location = 1) in vec2 aTexCoord;    // Texture coordinate attribute
+        layout(location = 2) in vec3 aNormal;      // Normal attribute
 
-        out vec2 TexCoords;
-        out vec3 FragPos;
-        out vec3 Normal;
+        out vec2 TexCoords;        // Pass texture coordinates to fragment shader
+        out vec3 FragPos;          // Pass fragment position to fragment shader
+        out vec3 Normal;           // Pass normal to fragment shader
 
-        uniform mat4 transform;
+        uniform mat4 transform;    // MVP matrix (combined model, view, projection)
+        uniform mat4 model;        // Model matrix for normal transformation
 
-        void main() {
+        void main()
+        {
+            // Transform the vertex position
+            FragPos = vec3(model * vec4(aPos, 1.0));
+            
+            // Correct the normals based on model transformation (transpose inverse)
+            Normal = mat3(transpose(inverse(model))) * aNormal;
+
+            // Pass through texture coordinates
             TexCoords = aTexCoord;
-            FragPos = vec3(transform * vec4(aPos, 1.0));
-            Normal = mat3(transpose(inverse(transform))) * aNormal; // Correct the normal based on transformations
+
+            // Apply the transform matrix (MVP) to compute final position
             gl_Position = transform * vec4(aPos, 1.0);
         }
+
 
     )glsl";
 
     const char *fragmentShaderSource = R"glsl(
         
         #version 330 core
-        in vec2 TexCoords;
-        in vec3 FragPos;
-        in vec3 Normal;
+        in vec2 TexCoords;         // Incoming texture coordinates
+        in vec3 FragPos;           // Incoming fragment position (world space)
+        in vec3 Normal;            // Incoming normal vector
 
-        out vec4 FragColor;
+        out vec4 FragColor;        // Final color output
 
-        uniform vec3 lightPos;
-        uniform vec3 viewPos;
+        uniform vec3 lightPos;     // Light source position
+        uniform vec3 viewPos;      // Camera position
+        uniform sampler2D grassTexture;  // Grass texture
+        uniform sampler2D rockTexture;   // Rock texture
+        uniform sampler2D snowTexture;   // Snow texture
 
-        uniform sampler2D grassTexture;
-        uniform sampler2D rockTexture;
-        uniform sampler2D snowTexture;
+        void main()
+        {
+            // Phong lighting components
+            vec3 ambientLight = vec3(0.3); // Ambient light strength
 
-        void main() {
-            // Ambient lighting
-            float ambientStrength = 0.5;
-            vec3 ambient = ambientStrength * vec3(1.0);
-
-            // Diffuse lighting
+            // Normalized vectors for lighting calculations
             vec3 norm = normalize(Normal);
             vec3 lightDir = normalize(lightPos - FragPos);
+            vec3 viewDir = normalize(viewPos - FragPos);
+
+            // Diffuse lighting (Lambert's cosine law)
             float diff = max(dot(norm, lightDir), 0.0);
             vec3 diffuse = diff * vec3(1.0);
 
-            // Specular lighting (reintroduce this now)
-            float specularStrength = 0.5;
-            vec3 viewDir = normalize(viewPos - FragPos);
+            // Specular lighting (Phong reflection)
             vec3 reflectDir = reflect(-lightDir, norm);
-            float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0); // Adjust shininess
-            vec3 specular = specularStrength * spec * vec3(1.0);
+            float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
+            vec3 specular = 0.5 * spec * vec3(1.0); // Specular strength
 
-            // Texture blending
+            // Combine ambient, diffuse, and specular lighting
+            vec3 lighting = ambientLight + diffuse + specular;
+
+            // Texture blending based on height
             vec4 grassColor = texture(grassTexture, TexCoords);
             vec4 rockColor = texture(rockTexture, TexCoords);
             vec4 snowColor = texture(snowTexture, TexCoords);
 
+            // Basic height-based blending
             vec4 baseColor;
             if (FragPos.y < 0.3)
                 baseColor = grassColor;
@@ -488,10 +505,12 @@ unsigned int createShaderProgram()
             else
                 baseColor = mix(rockColor, snowColor, (FragPos.y - 0.6) / 0.4);
 
-            // Apply ambient, diffuse, and specular lighting
-            FragColor = vec4((ambient + diffuse + specular), 1.0) * baseColor;
-         
+            // Final color is the product of lighting and base color
+            FragColor = vec4(lighting, 1.0) * baseColor;
+            // FragColor = vec4(normalize(Normal) * 0.5 + 0.5, 1.0); // This will map the normals to RGB colors
+
         }
+
         
     )glsl";
 
@@ -529,13 +548,32 @@ unsigned int createWaterShaderProgram()
         layout(location = 0) in vec3 aPos;
 
         uniform mat4 transform;
-        uniform float time;  // Add time for dynamic water movement
+        uniform float time;
+
+        out vec3 FragPos;    // To pass fragment position to fragment shader
+        out vec3 Normal;     // To pass normal to fragment shader
 
         void main() {
-            // Simulate water movement using a sine wave
+            // Add a sine wave effect to simulate waves
             vec3 position = aPos;
-            position.y += sin(position.x * 10.0 + time) * 0.05; // Adjust wave frequency and amplitude
+            float waveAmplitude = 0.05; // Adjust amplitude of the waves
+            float waveFrequency = 10.0; // Adjust frequency of the waves
 
+            // Simulate water waves using sine function
+            float wave = waveAmplitude * sin(position.x * waveFrequency + time) * cos(position.z * waveFrequency + time);
+            position.y += wave;
+
+            // Calculate partial derivatives to estimate the normal
+            float waveDerivativeX = waveAmplitude * waveFrequency * cos(position.x * waveFrequency + time) * cos(position.z * waveFrequency + time);
+            float waveDerivativeZ = -waveAmplitude * waveFrequency * sin(position.x * waveFrequency + time) * sin(position.z * waveFrequency + time);
+
+            // Approximate the normal using the cross product of the partial derivatives
+            vec3 tangentX = vec3(1.0, waveDerivativeX, 0.0); // Partial derivative in x direction
+            vec3 tangentZ = vec3(0.0, waveDerivativeZ, 1.0); // Partial derivative in z direction
+            Normal = normalize(cross(tangentZ, tangentX)); // Compute the normal by taking the cross product
+
+            // Pass transformed position to fragment shader
+            FragPos = vec3(transform * vec4(position, 1.0));
             gl_Position = transform * vec4(position, 1.0);
         }
     )glsl";
@@ -544,17 +582,37 @@ unsigned int createWaterShaderProgram()
         #version 330 core
         out vec4 FragColor;
 
+        in vec3 FragPos;
+        in vec3 Normal;
+
         uniform vec4 waterColor;
         uniform vec3 viewPos;  // Camera position for Fresnel effect
+        uniform vec3 lightPos; // Light position
 
         void main() {
             // Fresnel effect based on the angle between view and surface normal
-            float fresnel = dot(normalize(viewPos), vec3(0.0, 1.0, 0.0)); // Water is flat, so normal is (0, 1, 0)
+            float fresnel = dot(normalize(viewPos - FragPos), normalize(Normal));
             fresnel = clamp(1.0 - fresnel, 0.0, 1.0);  // Control strength of reflection
 
-            // Final water color with Fresnel effect
-            vec4 finalColor = mix(waterColor, vec4(1.0, 1.0, 1.0, 1.0), fresnel * 0.2);  // Blend with white to simulate reflection
-            FragColor = finalColor;
+            // Ambient lighting
+            float ambientStrength = 0.2;
+            vec3 ambient = ambientStrength * waterColor.rgb;
+
+            // Diffuse lighting
+            vec3 lightDir = normalize(lightPos - FragPos);
+            float diff = max(dot(Normal, lightDir), 0.0);
+            vec3 diffuse = diff * waterColor.rgb;
+
+            // Specular lighting
+            float specularStrength = 0.5;
+            vec3 viewDir = normalize(viewPos - FragPos);
+            vec3 reflectDir = reflect(-lightDir, Normal);
+            float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
+            vec3 specular = specularStrength * spec * vec3(1.0); // White specular highlights
+
+            // Final color with Fresnel effect and lighting
+            vec3 finalColor = ambient + diffuse + specular;
+            FragColor = vec4(mix(finalColor, vec3(1.0), fresnel * 0.2), 0.5); // Adjust alpha for transparency
         }
     )glsl";
 

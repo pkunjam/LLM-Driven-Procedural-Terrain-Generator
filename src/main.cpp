@@ -174,7 +174,7 @@ int main()
         float timeValue = glfwGetTime(); // Get the elapsed time
         glUniform1f(glGetUniformLocation(waterShaderProgram, "time"), timeValue);
 
-        glm::vec3 viewPosition = camera.Position;
+        glm::vec3 viewPosition = camera.GetCameraPosition();
         glUniform3fv(glGetUniformLocation(waterShaderProgram, "viewPos"), 1, glm::value_ptr(viewPosition));
 
         // Bind Water VAO and draw

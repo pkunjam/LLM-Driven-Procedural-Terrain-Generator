@@ -26,7 +26,7 @@ public:
         direction.z = sin(glm::radians(Yaw)) * cos(glm::radians(Pitch));
 
         glm::vec3 position = Target - direction * Distance;
-        return glm::lookAt(position, Target, glm::vec3(0.0f, 1.0f, 0.0f));
+        return glm::lookAt(position, Target, glm::vec3(0.0f, -1.0f, 0.0f));
     }
 
     void ProcessMouseMovement(float xOffset, float yOffset, bool rotate)
@@ -47,11 +47,22 @@ public:
 
     void ProcessMousePan(float xOffset, float yOffset)
     {
+        // Compute the right and up vectors relative to the camera's current position
         glm::vec3 right = glm::normalize(glm::cross(Target - GetCameraPosition(), glm::vec3(0.0f, 1.0f, 0.0f)));
         glm::vec3 up = glm::normalize(glm::cross(right, Target - GetCameraPosition()));
 
-        Target += -right * xOffset * PanSpeed;
-        Target += up * yOffset * PanSpeed;
+        // Adjust the camera position but leave the target unchanged
+        glm::vec3 cameraPos = GetCameraPosition();
+        cameraPos += -right * xOffset * PanSpeed;
+        cameraPos += up * yOffset * PanSpeed;
+
+        // Compute the new camera direction based on the new camera position
+        glm::vec3 direction = glm::normalize(Target - cameraPos);
+
+        // Update the distance and direction of the camera
+        Distance = glm::length(Target - cameraPos);
+        Yaw = glm::degrees(atan2(direction.z, direction.x));
+        Pitch = glm::degrees(asin(direction.y));
     }
 
     glm::vec3 GetCameraPosition() const

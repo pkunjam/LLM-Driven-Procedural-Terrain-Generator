@@ -4,8 +4,8 @@
 #include <string>
 #include <vector>
 
-extern void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices);
-extern void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const std::vector<float> &vertices, const std::vector<unsigned int> &indices);
+extern void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices, std::vector<float> &normals);
+extern void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const std::vector<float> &vertices, const std::vector<float> &normals, const std::vector<unsigned int> &indices);
 
 // Define terrain parameters
 extern float baseFrequency;
@@ -163,9 +163,10 @@ void handleUserPrompt(const std::string &userPrompt)
     {
         std::vector<float> vertices;
         std::vector<unsigned int> indices;
-
-        generateAdvancedTerrain(100, 100, vertices, indices); // Adjust grid size as needed
-        setupBuffers(VAO, VBO, EBO, vertices, indices);       // Rebind VAO, VBO, EBO to reflect new data
+        std::vector<float> normals;
+        
+        generateAdvancedTerrain(100, 100, vertices, indices, normals); // Adjust grid size as needed
+        setupBuffers(VAO, VBO, EBO, vertices, normals, indices);       // Rebind VAO, VBO, EBO to reflect new data
 
         std::cout << "Terrain has been regenerated with new parameters." << std::endl;
     }

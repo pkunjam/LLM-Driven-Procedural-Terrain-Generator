@@ -25,7 +25,7 @@ unsigned int waterVAO, waterVBO; // Water plane buffers
 unsigned int VAO, VBO, EBO;
 
 // Global Variables
-ArcballCamera camera(glm::vec3(0.0f, 0.5f, 0.0f), 2.0f, -90.0f, -20.0f);
+ArcballCamera camera(glm::vec3(0.0f, 0.5f, 0.0f), 2.0f, -90.0f, 20.0f);
 PerlinNoise perlin;
 bool leftMousePressed = false;
 bool rightMousePressed = false;
@@ -36,16 +36,20 @@ void processInput(GLFWwindow *window);
 void mouse_callback(GLFWwindow *window, double xpos, double ypos);
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
 void scroll_callback(GLFWwindow *window, double xOffset, double yOffset);
-void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices);
+void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices, std::vector<float> &normals);
 unsigned int createShaderProgram();
 unsigned int loadTexture(const char *path);
-void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const std::vector<float> &vertices, const std::vector<unsigned int> &indices);
+void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const std::vector<float> &vertices, const std::vector<float> &normals, const std::vector<unsigned int> &indices);
 void checkOpenGLError();
 void checkForUserPrompt(GLFWwindow* window);
+unsigned int compileShader(const char *shaderSource, GLenum shaderType);
 
 void generateWaterPlane(std::vector<float> &waterVertices, float width, float depth);
 void setupWaterBuffers(unsigned int &waterVAO, unsigned int &waterVBO, const std::vector<float> &waterVertices);
 unsigned int createWaterShaderProgram();
+
+// lighting
+glm::vec3 lightPos = glm::vec3(5.0f, 10.0f, 5.0f);
 
 // Main Function
 int main()
@@ -95,10 +99,20 @@ int main()
     unsigned int rockTexture = loadTexture("textures/rock.png");
     unsigned int snowTexture = loadTexture("textures/snow.jpg");
 
+    std::cout << "Grass texture ID: " << grassTexture << std::endl;
+    std::cout << "Rock texture ID: " << rockTexture << std::endl;
+    std::cout << "Snow texture ID: " << snowTexture << std::endl;
+
     // Generate Advanced Terrain Grid
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
-    generateAdvancedTerrain(100, 100, vertices, indices);
+    std::vector<float> normals;
+    generateAdvancedTerrain(100, 100, vertices, indices, normals);
+
+    std::cout << "Vertices generated: " << vertices.size() << std::endl;
+    std::cout << "Normals generated: " << normals.size() << std::endl;
+    std::cout << "Indices generated: " << indices.size() << std::endl;
+
 
     // Create Shader Program
     unsigned int shaderProgram = createShaderProgram();
@@ -110,7 +124,7 @@ int main()
     glUniform1i(glGetUniformLocation(shaderProgram, "snowTexture"), 2);
 
     // Setup Buffers
-    setupBuffers(VAO, VBO, EBO, vertices, indices);
+    setupBuffers(VAO, VBO, EBO, vertices, normals, indices);
 
     // Generate Water Plane
     std::vector<float> waterVertices;
@@ -146,6 +160,10 @@ int main()
 
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, snowTexture);
+
+        // Pass Lighting Information to Shader
+        glUniform3fv(glGetUniformLocation(shaderProgram, "lightPos"), 1, glm::value_ptr(lightPos));
+        glUniform3fv(glGetUniformLocation(shaderProgram, "viewPos"), 1, glm::value_ptr(camera.GetCameraPosition()));
 
         // View/Projection Transformations
         glm::mat4 view = camera.GetViewMatrix();
@@ -265,9 +283,12 @@ void scroll_callback(GLFWwindow *window, double xOffset, double yOffset)
 }
 
 // Generate Advanced Terrain with Multiple Layers of Perlin Noise
-void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices)
+void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices, std::vector<float> &normals)
 {
     float scale = 1.0f / (std::max(width, height) - 1);
+
+    // Clear previous normals
+    normals.resize(width * height * 3, 0.0f); // x, y, z normals for each vertex
 
     for (int z = 0; z < height; ++z)
     {
@@ -291,20 +312,73 @@ void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices
             vertices.push_back(heightValue); // Height
             vertices.push_back(zPos);
 
-            vertices.push_back(static_cast<float>(x) / (width - 1));  // Texture X coordinate
-            vertices.push_back(static_cast<float>(z) / (height - 1)); // Texture Y coordinate
+            // Texture coordinates
+            vertices.push_back(static_cast<float>(x) / (width - 1));
+            vertices.push_back(static_cast<float>(z) / (height - 1));
 
+            // If not at the last row/column, generate indices for this quad
             if (x < width - 1 && z < height - 1)
             {
-                int start = z * width + x;
-                indices.push_back(start);
-                indices.push_back(start + width);
-                indices.push_back(start + 1);
-                indices.push_back(start + 1);
-                indices.push_back(start + width);
-                indices.push_back(start + width + 1);
+                int topLeft = z * width + x;
+                int topRight = topLeft + 1;
+                int bottomLeft = (z + 1) * width + x;
+                int bottomRight = bottomLeft + 1;
+
+                // Triangle 1
+                indices.push_back(topLeft);
+                indices.push_back(bottomLeft);
+                indices.push_back(topRight);
+
+                // Triangle 2
+                indices.push_back(topRight);
+                indices.push_back(bottomLeft);
+                indices.push_back(bottomRight);
             }
         }
+    }
+
+    // Calculate normals by averaging adjacent triangle normals
+    for (size_t i = 0; i < indices.size(); i += 3)
+    {
+        // Get vertex indices for this triangle
+        unsigned int idx0 = indices[i];
+        unsigned int idx1 = indices[i + 1];
+        unsigned int idx2 = indices[i + 2];
+
+        // Get vertex positions
+        glm::vec3 v0(vertices[5 * idx0], vertices[5 * idx0 + 1], vertices[5 * idx0 + 2]);
+        glm::vec3 v1(vertices[5 * idx1], vertices[5 * idx1 + 1], vertices[5 * idx1 + 2]);
+        glm::vec3 v2(vertices[5 * idx2], vertices[5 * idx2 + 1], vertices[5 * idx2 + 2]);
+
+        // Calculate two edges
+        glm::vec3 edge1 = v1 - v0;
+        glm::vec3 edge2 = v2 - v0;
+
+        // Calculate normal using cross product
+        glm::vec3 normal = glm::normalize(glm::cross(edge1, edge2));
+
+        // Add normal to each vertex of the triangle
+        normals[3 * idx0] += normal.x;
+        normals[3 * idx0 + 1] += normal.y;
+        normals[3 * idx0 + 2] += normal.z;
+
+        normals[3 * idx1] += normal.x;
+        normals[3 * idx1 + 1] += normal.y;
+        normals[3 * idx1 + 2] += normal.z;
+
+        normals[3 * idx2] += normal.x;
+        normals[3 * idx2 + 1] += normal.y;
+        normals[3 * idx2 + 2] += normal.z;
+    }
+
+    // Normalize the normals for each vertex
+    for (int i = 0; i < width * height; ++i)
+    {
+        glm::vec3 normal(normals[3 * i], normals[3 * i + 1], normals[3 * i + 2]);
+        normal = glm::normalize(normal);
+        normals[3 * i] = normal.x;
+        normals[3 * i + 1] = normal.y;
+        normals[3 * i + 2] = normal.z;
     }
 }
 
@@ -320,6 +394,25 @@ void generateWaterPlane(std::vector<float> &waterVertices, float width, float de
         -0.5f * width, waterLevel, 0.5f * depth};
 }
 
+unsigned int compileShader(const char *shaderSource, GLenum shaderType)
+{
+    unsigned int shader = glCreateShader(shaderType);
+    glShaderSource(shader, 1, &shaderSource, NULL);
+    glCompileShader(shader);
+
+    // Check for compilation errors
+    int success;
+    char infoLog[512];
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+    if (!success)
+    {
+        glGetShaderInfoLog(shader, 512, NULL, infoLog);
+        std::cerr << "ERROR::SHADER::COMPILATION_FAILED\n"
+                  << infoLog << std::endl;
+    }
+    return shader;
+}
+
 // Create Shader Program
 unsigned int createShaderProgram()
 {
@@ -327,79 +420,89 @@ unsigned int createShaderProgram()
         #version 330 core
         layout(location = 0) in vec3 aPos;
         layout(location = 1) in vec2 aTexCoord;
+        layout(location = 2) in vec3 aNormal;
+
         out vec2 TexCoords;
-        out float Height;
+        out vec3 FragPos;
+        out vec3 Normal;
 
         uniform mat4 transform;
 
         void main() {
             TexCoords = aTexCoord;
-            Height = aPos.y;
+            FragPos = vec3(transform * vec4(aPos, 1.0));
+            Normal = mat3(transpose(inverse(transform))) * aNormal; // Correct the normal based on transformations
             gl_Position = transform * vec4(aPos, 1.0);
         }
+
     )glsl";
 
     const char *fragmentShaderSource = R"glsl(
+        
         #version 330 core
         in vec2 TexCoords;
-        in float Height;
+        in vec3 FragPos;
+        in vec3 Normal;
+
         out vec4 FragColor;
+
+        uniform vec3 lightPos;
+        uniform vec3 viewPos;
 
         uniform sampler2D grassTexture;
         uniform sampler2D rockTexture;
         uniform sampler2D snowTexture;
 
         void main() {
+            // Ambient lighting
+            float ambientStrength = 0.5;
+            vec3 ambient = ambientStrength * vec3(1.0);
+
+            // Diffuse lighting
+            vec3 norm = normalize(Normal);
+            vec3 lightDir = normalize(lightPos - FragPos);
+            float diff = max(dot(norm, lightDir), 0.0);
+            vec3 diffuse = diff * vec3(1.0);
+
+            // Specular lighting (reintroduce this now)
+            float specularStrength = 0.5;
+            vec3 viewDir = normalize(viewPos - FragPos);
+            vec3 reflectDir = reflect(-lightDir, norm);
+            float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0); // Adjust shininess
+            vec3 specular = specularStrength * spec * vec3(1.0);
+
+            // Texture blending
             vec4 grassColor = texture(grassTexture, TexCoords);
             vec4 rockColor = texture(rockTexture, TexCoords);
             vec4 snowColor = texture(snowTexture, TexCoords);
 
-            if (Height < 0.3)
-                FragColor = grassColor;
-            else if (Height < 0.6)
-                FragColor = mix(grassColor, rockColor, (Height - 0.3) / 0.3);
+            vec4 baseColor;
+            if (FragPos.y < 0.3)
+                baseColor = grassColor;
+            else if (FragPos.y < 0.6)
+                baseColor = mix(grassColor, rockColor, (FragPos.y - 0.3) / 0.3);
             else
-                FragColor = mix(rockColor, snowColor, (Height - 0.6) / 0.4);
+                baseColor = mix(rockColor, snowColor, (FragPos.y - 0.6) / 0.4);
+
+            // Apply ambient, diffuse, and specular lighting
+            FragColor = vec4((ambient + diffuse + specular), 1.0) * baseColor;
+         
         }
+        
     )glsl";
 
-    // Compile Vertex Shader
-    unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
-    glCompileShader(vertexShader);
+    unsigned int vertexShader = compileShader(vertexShaderSource, GL_VERTEX_SHADER);
+    unsigned int fragmentShader = compileShader(fragmentShaderSource, GL_FRAGMENT_SHADER);
 
-    // Check for Vertex Shader compilation errors
-    int success;
-    char infoLog[512];
-    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-    if (!success)
-    {
-        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-        std::cerr << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n"
-                  << infoLog << std::endl;
-    }
-
-    // Compile Fragment Shader
-    unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
-    glCompileShader(fragmentShader);
-
-    // Check for Fragment Shader compilation errors
-    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-    if (!success)
-    {
-        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-        std::cerr << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n"
-                  << infoLog << std::endl;
-    }
-
-    // Link Shaders to Create the Shader Program
+    // Shader Program linking
     unsigned int shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
     glLinkProgram(shaderProgram);
 
-    // Check for Linking errors
+    // Check for linking errors
+    int success;
+    char infoLog[512];
     glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
     if (!success)
     {
@@ -408,7 +511,7 @@ unsigned int createShaderProgram()
                   << infoLog << std::endl;
     }
 
-    // Clean up Shaders as they're now linked into the program
+    // Clean up shaders
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
@@ -543,7 +646,7 @@ unsigned int loadTexture(const char *path)
 }
 
 // Setup Buffers
-void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const std::vector<float> &vertices, const std::vector<unsigned int> &indices)
+void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const std::vector<float> &vertices, const std::vector<float> &normals, const std::vector<unsigned int> &indices)
 {
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
@@ -551,17 +654,35 @@ void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const
 
     glBindVertexArray(VAO);
 
+    // Create an interleaved vertex buffer (positions + normals + texture coordinates)
+    std::vector<float> interleavedData;
+    for (size_t i = 0; i < vertices.size() / 5; ++i)
+    {
+        interleavedData.push_back(vertices[5 * i]);     // x
+        interleavedData.push_back(vertices[5 * i + 1]); // y
+        interleavedData.push_back(vertices[5 * i + 2]); // z
+        interleavedData.push_back(vertices[5 * i + 3]); // u (texture coordinate)
+        interleavedData.push_back(vertices[5 * i + 4]); // v (texture coordinate)
+        interleavedData.push_back(normals[3 * i]);      // normal x
+        interleavedData.push_back(normals[3 * i + 1]);  // normal y
+        interleavedData.push_back(normals[3 * i + 2]);  // normal z
+    }
+
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), &vertices[0], GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, interleavedData.size() * sizeof(float), &interleavedData[0], GL_STATIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), &indices[0], GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)0);
+    // Set vertex attribute pointers
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)0); // Position
     glEnableVertexAttribArray(0);
 
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(3 * sizeof(float))); // TexCoords
     glEnableVertexAttribArray(1);
+
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(5 * sizeof(float))); // Normals
+    glEnableVertexAttribArray(2);
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);

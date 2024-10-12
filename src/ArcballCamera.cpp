@@ -47,22 +47,26 @@ public:
 
     void ProcessMousePan(float xOffset, float yOffset)
     {
-        // Compute the right and up vectors relative to the camera's current position
-        glm::vec3 right = glm::normalize(glm::cross(Target - GetCameraPosition(), glm::vec3(0.0f, 1.0f, 0.0f)));
-        glm::vec3 up = glm::normalize(glm::cross(right, Target - GetCameraPosition()));
+        // Get the right vector (camera's local x-axis direction) based on the current yaw and pitch
+        glm::vec3 right = glm::normalize(glm::cross(GetCameraFront(), glm::vec3(0.0f, 1.0f, 0.0f)));
 
-        // Adjust the camera position but leave the target unchanged
-        glm::vec3 cameraPos = GetCameraPosition();
-        cameraPos += -right * xOffset * PanSpeed;
-        cameraPos += up * yOffset * PanSpeed;
+        // The up vector is always the global up vector (0.0, 1.0, 0.0)
+        glm::vec3 up(0.0f, 1.0f, 0.0f);
 
-        // Compute the new camera direction based on the new camera position
-        glm::vec3 direction = glm::normalize(Target - cameraPos);
+        // Adjust the camera's target based on the pan direction
+        Target += -right * xOffset * PanSpeed; // Move left/right based on right vector
+        Target += up * yOffset * PanSpeed;     // Move up/down based on up vector
+    }
 
-        // Update the distance and direction of the camera
-        Distance = glm::length(Target - cameraPos);
-        Yaw = glm::degrees(atan2(direction.z, direction.x));
-        Pitch = glm::degrees(asin(direction.y));
+    // Helper function to get the camera's forward direction (normalized front vector)
+    glm::vec3 GetCameraFront() const
+    {
+        glm::vec3 direction;
+        direction.x = cos(glm::radians(Yaw)) * cos(glm::radians(Pitch));
+        direction.y = sin(glm::radians(Pitch));
+        direction.z = sin(glm::radians(Yaw)) * cos(glm::radians(Pitch));
+
+        return glm::normalize(direction);
     }
 
     glm::vec3 GetCameraPosition() const

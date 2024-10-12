@@ -180,7 +180,7 @@ int main()
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
     std::vector<float> normals;
-    generateAdvancedTerrain(100, 100, vertices, indices, normals);
+    generateAdvancedTerrain(500, 500, vertices, indices, normals);
 
     std::cout << "Vertices generated: " << vertices.size() << std::endl;
     std::cout << "Normals generated: " << normals.size() << std::endl;
@@ -331,6 +331,35 @@ void processInput(GLFWwindow *window)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
+
+    // Get camera direction vectors
+    glm::vec3 cameraFront = camera.GetCameraFront();                                        // Forward direction of the camera
+    glm::vec3 right = glm::normalize(glm::cross(cameraFront, glm::vec3(0.0f, 1.0f, 0.0f))); // Right direction relative to camera
+    glm::vec3 up(0.0f, 1.0f, 0.0f);                                                         // Global up direction
+
+    // Camera speed for movement
+    float cameraSpeed = 0.05f;
+
+    // Move camera forward (W)
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+    {
+        camera.Target += cameraFront * cameraSpeed;
+    }
+    // Move camera backward (S)
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+    {
+        camera.Target -= cameraFront * cameraSpeed;
+    }
+    // Move camera left (A)
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+    {
+        camera.Target -= right * cameraSpeed;
+    }
+    // Move camera right (D)
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+    {
+        camera.Target += right * cameraSpeed;
+    }
 }
 
 // Mouse Movement Callback
@@ -388,7 +417,7 @@ void scroll_callback(GLFWwindow *window, double xOffset, double yOffset)
 // Generate Advanced Terrain with Multiple Layers of Perlin Noise
 void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices, std::vector<float> &normals)
 {
-    float scale = 1.0f / (std::max(width, height) - 1);
+    float scale = 2.0f / (std::max(width, height) - 1);
 
     // Clear previous normals
     normals.resize(width * height * 3, 0.0f); // x, y, z normals for each vertex

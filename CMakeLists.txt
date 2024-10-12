@@ -30,3 +30,6 @@ target_link_libraries(OpenGLProject glfw glad)
 include_directories(vcpkg/installed/x64-windows/lib)
 include_directories(vcpkg/installed/x64-windows/include)
 # target_link_libraries(OpenGLProject PRIVATE CURL::libcurl)
+
+# Add stb_image
+target_include_directories(OpenGLProject PRIVATE src/stb_image.h)  # Adjust the path

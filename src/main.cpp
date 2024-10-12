@@ -25,7 +25,7 @@ unsigned int waterVAO, waterVBO; // Water plane buffers
 unsigned int VAO, VBO, EBO;
 
 // Global Variables
-ArcballCamera camera(glm::vec3(0.0f, 0.5f, 0.0f), 2.0f, -90.0f, 20.0f);
+ArcballCamera camera(glm::vec3(0.0f, 0.5f, 0.0f), 2.0f, -90.0f, -20.0f);
 PerlinNoise perlin;
 bool leftMousePressed = false;
 bool rightMousePressed = false;
@@ -43,13 +43,14 @@ void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const
 void checkOpenGLError();
 void checkForUserPrompt(GLFWwindow* window);
 unsigned int compileShader(const char *shaderSource, GLenum shaderType);
-
+unsigned int loadCubemap(std::vector<std::string> faces);
 void generateWaterPlane(std::vector<float> &waterVertices, float width, float depth);
 void setupWaterBuffers(unsigned int &waterVAO, unsigned int &waterVBO, const std::vector<float> &waterVertices);
 unsigned int createWaterShaderProgram();
+unsigned int createSkyboxShaderProgram();
 
-// lighting
-glm::vec3 lightPos(0.0f, 10.0f, 0.0f); // Light positioned above the terrain and water
+// Light position
+glm::vec3 lightPos(0.0f, 2.0f, 5.0f);
 
 // Main Function
 int main()
@@ -67,7 +68,7 @@ int main()
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // Create a GLFW Window
-    GLFWwindow *window = glfwCreateWindow(800, 600, "Advanced Perlin Noise Terrain Grid", nullptr, nullptr);
+    GLFWwindow *window = glfwCreateWindow(1920, 1080, "Advanced Perlin Noise Terrain Grid", nullptr, nullptr);
     if (!window)
     {
         std::cerr << "Failed to create GLFW window" << std::endl;
@@ -84,7 +85,7 @@ int main()
     }
 
     // Set the viewport
-    glViewport(0, 0, 800, 600);
+    glViewport(0, 0, 1920, 1080);
 
     // Register Input Callbacks
     glfwSetCursorPosCallback(window, mouse_callback);
@@ -102,6 +103,78 @@ int main()
     std::cout << "Grass texture ID: " << grassTexture << std::endl;
     std::cout << "Rock texture ID: " << rockTexture << std::endl;
     std::cout << "Snow texture ID: " << snowTexture << std::endl;
+
+    // Load Skybox Cubemap Textures
+    std::vector<std::string> faces = {
+        "textures/right.jpg",
+        "textures/left.jpg",
+        "textures/top.jpg",
+        "textures/bottom.jpg",
+        "textures/front.jpg",
+        "textures/back.jpg"
+    };
+
+    unsigned int cubemapTexture = loadCubemap(faces);
+
+    // Skybox vertices
+    float skyboxVertices[] = {
+        // positions
+        -1.0f, 1.0f, -1.0f,
+        -1.0f, -1.0f, -1.0f,
+        1.0f, -1.0f, -1.0f,
+        1.0f, -1.0f, -1.0f,
+        1.0f, 1.0f, -1.0f,
+        -1.0f, 1.0f, -1.0f,
+
+        -1.0f, -1.0f, 1.0f,
+        -1.0f, -1.0f, -1.0f,
+        -1.0f, 1.0f, -1.0f,
+        -1.0f, 1.0f, -1.0f,
+        -1.0f, 1.0f, 1.0f,
+        -1.0f, -1.0f, 1.0f,
+
+        1.0f, -1.0f, -1.0f,
+        1.0f, -1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, -1.0f,
+        1.0f, -1.0f, -1.0f,
+
+        -1.0f, -1.0f, 1.0f,
+        -1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f,
+        1.0f, -1.0f, 1.0f,
+        -1.0f, -1.0f, 1.0f,
+
+        -1.0f, 1.0f, -1.0f,
+        1.0f, 1.0f, -1.0f,
+        1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f,
+        -1.0f, 1.0f, 1.0f,
+        -1.0f, 1.0f, -1.0f,
+
+        -1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f, 1.0f,
+        1.0f, -1.0f, -1.0f,
+        1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f, 1.0f,
+        1.0f, -1.0f, 1.0f
+    };
+
+    // Create VAO and VBO for the skybox
+    unsigned int skyboxVAO, skyboxVBO;
+    glGenVertexArrays(1, &skyboxVAO);
+    glGenBuffers(1, &skyboxVBO);
+    glBindVertexArray(skyboxVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, skyboxVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), &skyboxVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+
+    unsigned int skyboxShaderProgram = createSkyboxShaderProgram();
+    glUseProgram(skyboxShaderProgram);
+    glUniform1i(glGetUniformLocation(skyboxShaderProgram, "skybox"), 0); // Set the skybox sampler uniform
 
     // Generate Advanced Terrain Grid
     std::vector<float> vertices;
@@ -128,7 +201,9 @@ int main()
 
     // Generate Water Plane
     std::vector<float> waterVertices;
-    generateWaterPlane(waterVertices, 1.0f, 1.0f); // Adjust width and depth as needed
+    
+    // Adjust width and depth as needed
+    generateWaterPlane(waterVertices, 0.5f, 0.5f); 
 
     // Create Water Shader Program
     unsigned int waterShaderProgram = createWaterShaderProgram();
@@ -167,7 +242,7 @@ int main()
 
         // View/Projection Transformations
         glm::mat4 view = camera.GetViewMatrix();
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), 1920.0f / 1080.0f, 0.1f, 100.0f);
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 mvp = projection * view * model;
 
@@ -184,27 +259,48 @@ int main()
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
 
-        // Render Water Plane
-        glUseProgram(waterShaderProgram);
+        // // Render Water Plane
+        // glUseProgram(waterShaderProgram);
 
-        // Set the transformation matrix for the water shader
-        int waterTransformLoc = glGetUniformLocation(waterShaderProgram, "transform");
-        glUniformMatrix4fv(waterTransformLoc, 1, GL_FALSE, glm::value_ptr(mvp));
+        // // Set the transformation matrix for the water shader
+        // int waterTransformLoc = glGetUniformLocation(waterShaderProgram, "transform");
+        // glUniformMatrix4fv(waterTransformLoc, 1, GL_FALSE, glm::value_ptr(mvp));
 
-        // Set the water color (RGBA)
-        glUniform4f(glGetUniformLocation(waterShaderProgram, "waterColor"), 0.0f, 0.3f, 0.6f, 0.5f); // Adjust color and transparency as desired
+        // // Set the water color (RGBA)
+        // glUniform4f(glGetUniformLocation(waterShaderProgram, "waterColor"), 0.0f, 0.3f, 0.6f, 0.5f); // Adjust color and transparency as desired
 
-        float timeValue = glfwGetTime(); // Get the elapsed time
-        glUniform1f(glGetUniformLocation(waterShaderProgram, "time"), timeValue);
+        // float timeValue = glfwGetTime(); // Get the elapsed time
+        // glUniform1f(glGetUniformLocation(waterShaderProgram, "time"), timeValue);
 
-        glUniform3fv(glGetUniformLocation(waterShaderProgram, "lightPos"), 1, glm::value_ptr(lightPos));
+        // glUniform3fv(glGetUniformLocation(waterShaderProgram, "lightPos"), 1, glm::value_ptr(lightPos));
         
-        glm::vec3 viewPosition = camera.GetCameraPosition();
-        glUniform3fv(glGetUniformLocation(waterShaderProgram, "viewPos"), 1, glm::value_ptr(viewPosition));
+        // glm::vec3 viewPosition = camera.GetCameraPosition();
+        // glUniform3fv(glGetUniformLocation(waterShaderProgram, "viewPos"), 1, glm::value_ptr(viewPosition));
 
-        // Bind Water VAO and draw
-        glBindVertexArray(waterVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+        // // Bind Water VAO and draw
+        // glBindVertexArray(waterVAO);
+        // glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        // Render the skybox (disable depth testing so it's drawn behind everything else)
+        glDepthFunc(GL_LEQUAL); // Change depth function so skybox passes depth test
+        glUseProgram(skyboxShaderProgram);
+
+        // Remove translation from the view matrix
+        glm::mat4 skyboxView = glm::mat4(glm::mat3(camera.GetViewMatrix())); // Extract rotation
+        glm::mat4 skyboxProjection = glm::perspective(glm::radians(45.0f), 1920.0f / 1080.0f, 0.1f, 100.0f);
+
+        glUniformMatrix4fv(glGetUniformLocation(skyboxShaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(skyboxView));
+        glUniformMatrix4fv(glGetUniformLocation(skyboxShaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(skyboxProjection));
+
+        // Render the skybox cube
+        glBindVertexArray(skyboxVAO);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTexture);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(0);
+
+        // Restore default depth function
+        glDepthFunc(GL_LESS);
 
         // Swap Buffers and Poll Events
         glfwSwapBuffers(window);
@@ -504,6 +600,7 @@ unsigned int createShaderProgram()
                 baseColor = mix(grassColor, rockColor, (FragPos.y - 0.3) / 0.3);
             else
                 baseColor = mix(rockColor, snowColor, (FragPos.y - 0.6) / 0.4);
+                
 
             // Final color is the product of lighting and base color
             FragColor = vec4(lighting, 1.0) * baseColor;
@@ -541,6 +638,7 @@ unsigned int createShaderProgram()
     return shaderProgram;
 }
 
+// Water Shader Program
 unsigned int createWaterShaderProgram()
 {
     const char *waterVertexShaderSource = R"glsl(
@@ -556,8 +654,8 @@ unsigned int createWaterShaderProgram()
         void main() {
             // Add a sine wave effect to simulate waves
             vec3 position = aPos;
-            float waveAmplitude = 0.05; // Adjust amplitude of the waves
-            float waveFrequency = 10.0; // Adjust frequency of the waves
+            float waveAmplitude = 0.1; // Adjust amplitude of the waves
+            float waveFrequency = 20.0; // Adjust frequency of the waves
 
             // Simulate water waves using sine function
             float wave = waveAmplitude * sin(position.x * waveFrequency + time) * cos(position.z * waveFrequency + time);
@@ -612,7 +710,7 @@ unsigned int createWaterShaderProgram()
 
             // Final color with Fresnel effect and lighting
             vec3 finalColor = ambient + diffuse + specular;
-            FragColor = vec4(mix(finalColor, vec3(1.0), fresnel * 0.2), 0.5); // Adjust alpha for transparency
+            FragColor = vec4(mix(finalColor, vec3(1.0), fresnel * 0.2), 0.25); // Adjust alpha for transparency
         }
     )glsl";
 
@@ -668,8 +766,56 @@ unsigned int createWaterShaderProgram()
     return waterShaderProgram; // Return the water shader program ID
 }
 
+// Skybox Shader Program
+unsigned int createSkyboxShaderProgram()
+{
+    const char *skyboxVertexShaderSource = R"glsl(
+        #version 330 core
+        layout (location = 0) in vec3 aPos;
+        out vec3 TexCoords;
+
+        uniform mat4 view;
+        uniform mat4 projection;
+
+        void main()
+        {
+            TexCoords = aPos;
+            vec4 pos = projection * view * vec4(aPos, 1.0);
+            gl_Position = pos.xyww;  // Ignore the z component, always behind
+        }
+    )glsl";
+
+    const char *skyboxFragmentShaderSource = R"glsl(
+        #version 330 core
+        in vec3 TexCoords;
+        out vec4 FragColor;
+
+        uniform samplerCube skybox;
+
+        void main()
+        {
+            FragColor = texture(skybox, TexCoords);
+        }
+    )glsl";
+
+    unsigned int vertexShader = compileShader(skyboxVertexShaderSource, GL_VERTEX_SHADER);
+    unsigned int fragmentShader = compileShader(skyboxFragmentShaderSource, GL_FRAGMENT_SHADER);
+
+    // Link shaders into program
+    unsigned int shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+    glLinkProgram(shaderProgram);
+
+    // Clean up
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    return shaderProgram;
+}
+
 // Load Texture
-unsigned int loadTexture(const char *path)
+unsigned int loadTexture(char const *path)
 {
     unsigned int textureID;
     glGenTextures(1, &textureID);
@@ -699,9 +845,8 @@ unsigned int loadTexture(const char *path)
     }
     else
     {
-        std::cerr << "Texture failed to load at path: " << path << std::endl;
+        std::cout << "Texture failed to load at path: " << path << std::endl;
         stbi_image_free(data);
-        return 0;
     }
 
     return textureID;
@@ -765,6 +910,36 @@ void setupWaterBuffers(unsigned int &waterVAO, unsigned int &waterVBO, const std
     glEnableVertexAttribArray(0);
 
     glBindVertexArray(0);
+}
+
+unsigned int loadCubemap(std::vector<std::string> faces)
+{
+    unsigned int textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+
+    int width, height, nrChannels;
+    for (unsigned int i = 0; i < faces.size(); i++)
+    {
+        unsigned char *data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
+        if (data)
+        {
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+            stbi_image_free(data);
+        }
+        else
+        {
+            std::cout << "Cubemap texture failed to load at path: " << faces[i] << std::endl;
+            stbi_image_free(data);
+        }
+    }
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    return textureID;
 }
 
 // Check for OpenGL Errors

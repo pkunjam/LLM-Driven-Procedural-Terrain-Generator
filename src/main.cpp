@@ -203,7 +203,7 @@ int main()
     std::vector<float> waterVertices;
     
     // Adjust width and depth as needed
-    generateWaterPlane(waterVertices, 0.5f, 0.5f); 
+    generateWaterPlane(waterVertices, 1.0f, 1.0f); 
 
     // Create Water Shader Program
     unsigned int waterShaderProgram = createWaterShaderProgram();
@@ -259,27 +259,27 @@ int main()
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
 
-        // // Render Water Plane
-        // glUseProgram(waterShaderProgram);
+        // Render Water Plane
+        glUseProgram(waterShaderProgram);
 
-        // // Set the transformation matrix for the water shader
-        // int waterTransformLoc = glGetUniformLocation(waterShaderProgram, "transform");
-        // glUniformMatrix4fv(waterTransformLoc, 1, GL_FALSE, glm::value_ptr(mvp));
+        // Set the transformation matrix for the water shader
+        int waterTransformLoc = glGetUniformLocation(waterShaderProgram, "transform");
+        glUniformMatrix4fv(waterTransformLoc, 1, GL_FALSE, glm::value_ptr(mvp));
 
-        // // Set the water color (RGBA)
-        // glUniform4f(glGetUniformLocation(waterShaderProgram, "waterColor"), 0.0f, 0.3f, 0.6f, 0.5f); // Adjust color and transparency as desired
+        // Set the water color (RGBA)
+        glUniform4f(glGetUniformLocation(waterShaderProgram, "waterColor"), 0.0f, 0.3f, 0.6f, 0.5f); // Adjust color and transparency as desired
 
-        // float timeValue = glfwGetTime(); // Get the elapsed time
-        // glUniform1f(glGetUniformLocation(waterShaderProgram, "time"), timeValue);
+        float timeValue = glfwGetTime(); // Get the elapsed time
+        glUniform1f(glGetUniformLocation(waterShaderProgram, "time"), timeValue);
 
-        // glUniform3fv(glGetUniformLocation(waterShaderProgram, "lightPos"), 1, glm::value_ptr(lightPos));
+        glUniform3fv(glGetUniformLocation(waterShaderProgram, "lightPos"), 1, glm::value_ptr(lightPos));
         
-        // glm::vec3 viewPosition = camera.GetCameraPosition();
-        // glUniform3fv(glGetUniformLocation(waterShaderProgram, "viewPos"), 1, glm::value_ptr(viewPosition));
+        glm::vec3 viewPosition = camera.GetCameraPosition();
+        glUniform3fv(glGetUniformLocation(waterShaderProgram, "viewPos"), 1, glm::value_ptr(viewPosition));
 
-        // // Bind Water VAO and draw
-        // glBindVertexArray(waterVAO);
-        // glDrawArrays(GL_TRIANGLES, 0, 6);
+        // Bind Water VAO and draw
+        glBindVertexArray(waterVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
 
         // Render the skybox (disable depth testing so it's drawn behind everything else)
         glDepthFunc(GL_LEQUAL); // Change depth function so skybox passes depth test

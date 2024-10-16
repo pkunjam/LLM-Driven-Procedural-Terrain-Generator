@@ -33,3 +33,7 @@ include_directories(vcpkg/installed/x64-windows/include)
 
 # Add stb_image
 target_include_directories(OpenGLProject PRIVATE src/stb_image.h)  # Adjust the path
+
+# Macbook inclusion
+find_package(CURL REQUIRED)
+target_link_libraries(OpenGLProject CURL::libcurl)

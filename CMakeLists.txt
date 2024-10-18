@@ -14,11 +14,11 @@ target_include_directories(glad PUBLIC libs/GLAD/include)
 include_directories(libs/GLFW/include libs/GLAD/include)
 include_directories(glm)
 include_directories(src/)
+include_directories(include)
 
 # Add source files
 add_executable(OpenGLProject 
     src/main.cpp 
-    src/UserPrompt.cpp
 )
 
 # Link libraries
@@ -36,4 +36,4 @@ target_include_directories(OpenGLProject PRIVATE src/stb_image.h)  # Adjust the 
 
 # Macbook inclusion
 find_package(CURL REQUIRED)
-target_link_libraries(OpenGLProject CURL::libcurl)
+target_link_libraries(OpenGLProject curl)

@@ -10,7 +10,11 @@
 #include "ArcballCamera.cpp"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-#include "UserPrompt.h"
+// #include "UserPrompt.h"
+
+#include <cstdlib>
+#include <curl/curl.h>
+#include "json.hpp" // For nlohmann::json
 
 // Global variables for terrain parameters
 int numOctaves = 4;
@@ -18,6 +22,14 @@ float persistence = 0.5f;
 float lacunarity = 2.0f;
 float baseAmplitude = 0.5f;
 float baseFrequency = 0.4f;
+
+std::vector<float> vertices;
+std::vector<unsigned int> indices;
+std::vector<float> normals;
+
+// Terrain dimensions
+int width = 500;
+int height = 500;
 
 float waterLevel = 0.5f;         // Initial water level
 unsigned int waterVAO, waterVBO; // Water plane buffers
@@ -51,6 +63,288 @@ unsigned int createSkyboxShaderProgram();
 
 // Light position
 glm::vec3 lightPos(0.0f, 2.0f, 5.0f);
+
+void updateTerrain(int width, int height,
+                   std::vector<float>& vertices,
+                   std::vector<unsigned int>& indices,
+                   std::vector<float>& normals,
+                   int numOctaves,
+                   float persistence,
+                   float lacunarity,
+                   float baseAmplitude,
+                   float baseFrequency)
+{
+    // Update global parameters
+    ::numOctaves = numOctaves;
+    ::persistence = persistence;
+    ::lacunarity = lacunarity;
+    ::baseAmplitude = baseAmplitude;
+    ::baseFrequency = baseFrequency;
+
+    // Clear existing data
+    vertices.clear();
+    indices.clear();
+    normals.clear();
+
+    // Generate terrain with new parameters
+    generateAdvancedTerrain(width, height, vertices, indices, normals);
+
+    // Update buffers and reload data to GPU if necessary
+    setupBuffers(VAO, VBO, EBO, vertices, normals, indices);
+}
+
+nlohmann::json functionDefinitions = nlohmann::json::array({
+    {
+        {"name", "updateTerrain"},
+        {"description", "Updates terrain parameters and regenerates the terrain."},
+        {"parameters",
+            {
+                {"type", "object"},
+                {"properties",
+                    {
+                        {"numOctaves", {
+                            {"type", "integer"},
+                            {"description", "Number of noise octaves (controls detail level)."},
+                            {"minimum", 1},
+                            {"maximum", 10}
+                        }},
+                        {"persistence", {
+                            {"type", "number"},
+                            {"description", "Amplitude decay factor (controls smoothness)."},
+                            {"minimum", 0.1},
+                            {"maximum", 1.0}
+                        }},
+                        {"lacunarity", {
+                            {"type", "number"},
+                            {"description", "Frequency increase factor (controls feature density)."},
+                            {"minimum", 1.0},
+                            {"maximum", 4.0}
+                        }},
+                        {"baseAmplitude", {
+                            {"type", "number"},
+                            {"description", "Base amplitude for terrain height (controls hill height)."},
+                            {"minimum", 0.1},
+                            {"maximum", 5.0}
+                        }},
+                        {"baseFrequency", {
+                            {"type", "number"},
+                            {"description", "Base frequency for terrain features (controls feature size)."},
+                            {"minimum", 0.1},
+                            {"maximum", 5.0}
+                        }}
+                    }},
+                {"required", nlohmann::json::array({"numOctaves", "persistence", "lacunarity", "baseAmplitude", "baseFrequency"})}
+            }}
+    }
+});
+
+
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
+{
+    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+std::string getAPIKey()
+{
+    const char* apiKey = std::getenv("OPENAI_API_KEY");
+    if (!apiKey)
+    {
+        std::cerr << "Error: OPENAI_API_KEY environment variable not set." << std::endl;
+        exit(1);
+    }
+    return std::string(apiKey);
+}
+
+std::string buildSystemPrompt()
+{
+    std::string systemPrompt = "You are an assistant integrated into a procedural terrain generation system built using C++ and OpenGL. \n\
+The system uses several terrain parameters, and the user input determines how the terrain is modified. Your task is to interpret natural \n\
+language inputs and adjust the terrain parameters accordingly, making moderate adjustments based on the user's intent.\n\
+The terrain is generated using Perlin noise. The parameters you need to adjust based on user input are:\n\
+- numOctaves (Integer): Controls the number of layers (octaves) of noise that are combined to generate the terrain. Higher values add more detail. **Current value is " + std::to_string(::numOctaves) + ".**\n\
+- persistence (Float): Controls the amplitude decay of each octave. Lower values create smoother terrain. **Current value is " + std::to_string(::persistence) + ".**\n\
+- lacunarity (Float): Controls the frequency increase between octaves. Higher values make the terrain features denser. **Current value is " + std::to_string(::lacunarity) + ".**\n\
+- baseAmplitude (Float): Determines the overall height variation. Higher values create taller hills. **Current value is " + std::to_string(::baseAmplitude) + ".**\n\
+- baseFrequency (Float): Controls the overall scale of the terrain features. Higher values make the features more frequent (smaller hills). **Current value is " + std::to_string(::baseFrequency) + ".**\n\
+You will extract terrain parameters from user input and call the updateTerrain function accordingly. Do not provide any explanations or additional text.";
+
+    return systemPrompt;
+}
+
+
+std::string sendOpenAIRequest(const std::string& prompt)
+{
+    CURL* curl;
+    CURLcode res;
+    std::string readBuffer;
+
+    curl = curl_easy_init();
+    if(curl)
+    {
+        std::string api_key = getAPIKey();
+        std::string auth_header = "Authorization: Bearer " + api_key;
+        struct curl_slist* headers = NULL;
+        headers = curl_slist_append(headers, auth_header.c_str());
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+
+        curl_easy_setopt(curl, CURLOPT_URL, "https://api.openai.com/v1/chat/completions");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+        // Prepare the JSON payload
+        nlohmann::json jsonPayload;
+        jsonPayload["model"] = "gpt-3.5-turbo";
+        // jsonPayload["model"] = "gpt-4-0613";
+        jsonPayload["messages"] = {
+            {
+                {"role", "system"},
+                {"content", buildSystemPrompt()}
+            },
+            {{"role", "user"}, {"content", prompt}}
+        };
+
+        // Add function definitions for function calling
+        jsonPayload["functions"] = functionDefinitions;
+        jsonPayload["function_call"] = { {"name", "updateTerrain"} };
+
+        // Convert JSON payload to string
+        std::string payload = jsonPayload.dump();
+
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
+
+        // Set up callback to capture response
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+
+        // Perform the request
+        res = curl_easy_perform(curl);
+
+        // Clean up
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+
+        if(res != CURLE_OK)
+        {
+            std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
+            return "";
+        }
+    }
+
+    // Log the response
+    // std::cout << "API Response: " << readBuffer << std::endl;
+
+    return readBuffer;
+}
+
+std::string getUserInput()
+{
+    std::cout << "Enter terrain modification command: ";
+    std::string input;
+    std::getline(std::cin, input);
+    return input;
+}
+
+nlohmann::json parseOpenAIResponse(const std::string& response)
+{
+    nlohmann::json jsonResponse = nlohmann::json::parse(response);
+    auto message = jsonResponse["choices"][0]["message"];
+
+    if (message.contains("function_call"))
+    {
+        std::string functionName = message["function_call"]["name"];
+        std::string arguments = message["function_call"]["arguments"];
+        nlohmann::json argsJson = nlohmann::json::parse(arguments);
+
+        return { {"function_name", functionName}, {"arguments", argsJson} };
+    }
+    else
+    {
+        throw std::runtime_error("No function_call in response");
+    }
+}
+
+void invokeTerrainFunction(const nlohmann::json& functionCall)
+{
+    std::string functionName = functionCall["function_name"];
+    nlohmann::json args = functionCall["arguments"];
+
+    if (functionName == "updateTerrain")
+    {
+        // Extract parameters with default values
+        int newNumOctaves = args.value("numOctaves", ::numOctaves);
+        float newPersistence = args.value("persistence", ::persistence);
+        float newLacunarity = args.value("lacunarity", ::lacunarity);
+        float newBaseAmplitude = args.value("baseAmplitude", ::baseAmplitude);
+        float newBaseFrequency = args.value("baseFrequency", ::baseFrequency);
+
+        // Limit the changes to reasonable amounts
+        int deltaNumOctaves = newNumOctaves - ::numOctaves;
+        if (deltaNumOctaves > 2) newNumOctaves = ::numOctaves + 2;
+        if (deltaNumOctaves < -2) newNumOctaves = ::numOctaves - 2;
+
+        float deltaPersistence = newPersistence - ::persistence;
+        if (deltaPersistence > 0.2f) newPersistence = ::persistence + 0.2f;
+        if (deltaPersistence < -0.2f) newPersistence = ::persistence - 0.2f;
+
+        float deltaLacunarity = newLacunarity - ::lacunarity;
+        if (deltaLacunarity > 0.5f) newLacunarity = ::lacunarity + 0.5f;
+        if (deltaLacunarity < -0.5f) newLacunarity = ::lacunarity - 0.5f;
+
+        float deltaBaseAmplitude = newBaseAmplitude - ::baseAmplitude;
+        if (deltaBaseAmplitude > 0.5f) newBaseAmplitude = ::baseAmplitude + 0.5f;
+        if (deltaBaseAmplitude < -0.5f) newBaseAmplitude = ::baseAmplitude - 0.5f;
+
+        float deltaBaseFrequency = newBaseFrequency - ::baseFrequency;
+        if (deltaBaseFrequency > 0.5f) newBaseFrequency = ::baseFrequency + 0.5f;
+        if (deltaBaseFrequency < -0.5f) newBaseFrequency = ::baseFrequency - 0.5f;
+
+        // Ensure parameters are within valid ranges
+        newNumOctaves = std::clamp(newNumOctaves, 1, 10);
+        newPersistence = std::clamp(newPersistence, 0.1f, 1.0f);
+        newLacunarity = std::clamp(newLacunarity, 1.0f, 4.0f);
+        newBaseAmplitude = std::clamp(newBaseAmplitude, 0.1f, 5.0f);
+        newBaseFrequency = std::clamp(newBaseFrequency, 0.1f, 5.0f);
+
+        std::cout << "Current Terrain Parameters: " << std::endl << std::endl;
+        std::cout << "Number of Octaves: " << numOctaves << std::endl;
+        std::cout << "Persistence: " << persistence << std::endl;
+        std::cout << "Lacunarity: " << lacunarity << std::endl;
+        std::cout << "Amplitude: " << baseAmplitude << std::endl;
+        std::cout << "Frequency: " << baseFrequency << std::endl;
+
+        // Call the updateTerrain function
+        updateTerrain(width, height, vertices, indices, normals,
+                      newNumOctaves, newPersistence, newLacunarity,
+                      newBaseAmplitude, newBaseFrequency);
+    }
+    else
+    {
+        std::cerr << "Unknown function called: " << functionName << std::endl;
+    }
+}
+
+
+bool userWantsToModifyTerrain(GLFWwindow *window)
+{
+    // Example implementation using a key press (e.g., 'M' key)
+    static bool keyPressed = false;
+
+    if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS)
+    {
+        if (!keyPressed)
+        {
+            keyPressed = true;
+            return true;
+        }
+    }
+    else
+    {
+        keyPressed = false;
+    }
+    return false;
+}
+
+
 
 // Main Function
 int main()
@@ -177,10 +471,8 @@ int main()
     glUniform1i(glGetUniformLocation(skyboxShaderProgram, "skybox"), 0); // Set the skybox sampler uniform
 
     // Generate Advanced Terrain Grid
-    std::vector<float> vertices;
-    std::vector<unsigned int> indices;
-    std::vector<float> normals;
-    generateAdvancedTerrain(500, 500, vertices, indices, normals);
+    
+    generateAdvancedTerrain(width, height, vertices, indices, normals);
 
     std::cout << "Vertices generated: " << vertices.size() << std::endl;
     std::cout << "Normals generated: " << normals.size() << std::endl;
@@ -218,7 +510,24 @@ int main()
         processInput(window);
 
         // check if the 'P' key is pressed for user input
-        checkForUserPrompt(window);
+        if (userWantsToModifyTerrain(window))
+        {
+            std::string userInput = getUserInput();
+            std::string response = sendOpenAIRequest(userInput);
+
+            if (!response.empty())
+            {
+                try
+                {
+                    nlohmann::json functionCall = parseOpenAIResponse(response);
+                    invokeTerrainFunction(functionCall);
+                }
+                catch (const std::exception& e)
+                {
+                    std::cerr << "Error: " << e.what() << std::endl;
+                }
+            }
+        }
 
         // Clear Screen
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -259,27 +568,27 @@ int main()
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
 
-        // Render Water Plane
-        glUseProgram(waterShaderProgram);
+        // // Render Water Plane
+        // glUseProgram(waterShaderProgram);
 
-        // Set the transformation matrix for the water shader
-        int waterTransformLoc = glGetUniformLocation(waterShaderProgram, "transform");
-        glUniformMatrix4fv(waterTransformLoc, 1, GL_FALSE, glm::value_ptr(mvp));
+        // // Set the transformation matrix for the water shader
+        // int waterTransformLoc = glGetUniformLocation(waterShaderProgram, "transform");
+        // glUniformMatrix4fv(waterTransformLoc, 1, GL_FALSE, glm::value_ptr(mvp));
 
-        // Set the water color (RGBA)
-        glUniform4f(glGetUniformLocation(waterShaderProgram, "waterColor"), 0.0f, 0.3f, 0.6f, 0.5f); // Adjust color and transparency as desired
+        // // Set the water color (RGBA)
+        // glUniform4f(glGetUniformLocation(waterShaderProgram, "waterColor"), 0.0f, 0.3f, 0.6f, 0.5f); // Adjust color and transparency as desired
 
-        float timeValue = glfwGetTime(); // Get the elapsed time
-        glUniform1f(glGetUniformLocation(waterShaderProgram, "time"), timeValue);
+        // float timeValue = glfwGetTime(); // Get the elapsed time
+        // glUniform1f(glGetUniformLocation(waterShaderProgram, "time"), timeValue);
 
-        glUniform3fv(glGetUniformLocation(waterShaderProgram, "lightPos"), 1, glm::value_ptr(lightPos));
+        // glUniform3fv(glGetUniformLocation(waterShaderProgram, "lightPos"), 1, glm::value_ptr(lightPos));
         
-        glm::vec3 viewPosition = camera.GetCameraPosition();
-        glUniform3fv(glGetUniformLocation(waterShaderProgram, "viewPos"), 1, glm::value_ptr(viewPosition));
+        // glm::vec3 viewPosition = camera.GetCameraPosition();
+        // glUniform3fv(glGetUniformLocation(waterShaderProgram, "viewPos"), 1, glm::value_ptr(viewPosition));
 
-        // Bind Water VAO and draw
-        glBindVertexArray(waterVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+        // // Bind Water VAO and draw
+        // glBindVertexArray(waterVAO);
+        // glDrawArrays(GL_TRIANGLES, 0, 6);
 
         // Render the skybox (disable depth testing so it's drawn behind everything else)
         glDepthFunc(GL_LEQUAL); // Change depth function so skybox passes depth test
@@ -984,9 +1293,12 @@ void checkOpenGLError()
 // Function to check for key press (for user prompt)
 void checkForUserPrompt(GLFWwindow *window)
 {
-    if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS)
-    {
-        std::string userPrompt = getUserPrompt();
-        handleUserPrompt(userPrompt);
+    if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS) {
+        std::cout << "Please enter a prompt (e.g., 'Make the terrain rugged'):\n";
+        std::string userPrompt;
+        std::getline(std::cin, userPrompt); // Get prompt from the user
+
+        // Handle the prompt and regenerate terrain
+        // handleUserPrompt(userPrompt);
     }
 }

@@ -1,5 +1,5 @@
 # Ignore build directory
-build/
+/build/
 !build/
 vcpkg/
 
@@ -33,3 +33,6 @@ Makefile
 # Ignore system-specific files
 .DS_Store
 Thumbs.db
+
+
+glm/doc/api/

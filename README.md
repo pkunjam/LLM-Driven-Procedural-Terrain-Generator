@@ -67,7 +67,7 @@ An advanced procedural terrain generation system built using C++ and OpenGL, fea
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/pkunjam/Procedural-Terrain-Generator.git
+git clone https://github.com/pkunjam/LLM-Driven-Procedural-Terrain-Generator.git
 cd Procedural-Terrain-Generator
 ```
 

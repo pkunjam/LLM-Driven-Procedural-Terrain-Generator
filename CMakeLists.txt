@@ -10,30 +10,38 @@ add_subdirectory(libs/GLFW)
 add_library(glad libs/GLAD/src/glad.c)
 target_include_directories(glad PUBLIC libs/GLAD/include)
 
-# Include directories
-include_directories(libs/GLFW/include libs/GLAD/include)
-include_directories(glm)
-include_directories(src/)
-include_directories(include)
-
 # Add source files
-add_executable(OpenGLProject 
-    src/main.cpp 
+set(SOURCES
+    src/main.cpp
+    # ImGui source files
+    libs/imgui/imgui.cpp
+    libs/imgui/imgui_draw.cpp
+    libs/imgui/imgui_tables.cpp
+    libs/imgui/imgui_widgets.cpp
+    # ImGui backend files
+    libs/imgui/backends/imgui_impl_glfw.cpp
+    libs/imgui/backends/imgui_impl_opengl3.cpp
+)
+
+add_executable(OpenGLProject ${SOURCES})
+
+# Include directories
+target_include_directories(OpenGLProject PRIVATE
+    libs/GLFW/include
+    libs/GLAD/include
+    glm
+    src/
+    include
+    libs/imgui
+    libs/imgui/backends
 )
 
 # Link libraries
-target_link_libraries(OpenGLProject glfw glad)
-
-# set(CMAKE_TOOLCHAIN_FILE "vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
-
-# find_package(CURL REQUIRED)
-include_directories(vcpkg/installed/x64-windows/lib)
-include_directories(vcpkg/installed/x64-windows/include)
-# target_link_libraries(OpenGLProject PRIVATE CURL::libcurl)
+target_link_libraries(OpenGLProject PRIVATE glfw glad)
 
 # Add stb_image
-target_include_directories(OpenGLProject PRIVATE src/stb_image.h)  # Adjust the path
+target_include_directories(OpenGLProject PRIVATE src)
 
-# Macbook inclusion
+# Macbook inclusion (if needed)
 find_package(CURL REQUIRED)
-target_link_libraries(OpenGLProject curl)
+target_link_libraries(OpenGLProject PRIVATE curl)

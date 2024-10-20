@@ -10,11 +10,21 @@
 #include "ArcballCamera.cpp"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-// #include "UserPrompt.h"
 
 #include <cstdlib>
 #include <curl/curl.h>
 #include "json.hpp" // For nlohmann::json
+#include <sstream>
+
+// ImGui headers
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+
+// Add ImGui variables for chat interface
+static ImGuiTextBuffer chatHistory;
+static char inputBuffer[256] = "";
+static bool scrollToBottom = false;
 
 // Global variables for terrain parameters
 int numOctaves = 4;
@@ -23,6 +33,10 @@ float lacunarity = 2.0f;
 float baseAmplitude = 0.5f;
 float baseFrequency = 0.4f;
 
+// Conversation history for LLM context
+std::vector<nlohmann::json> conversationHistory;
+
+// Terrain data structures
 std::vector<float> vertices;
 std::vector<unsigned int> indices;
 std::vector<float> normals;
@@ -53,7 +67,6 @@ unsigned int createShaderProgram();
 unsigned int loadTexture(const char *path);
 void setupBuffers(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, const std::vector<float> &vertices, const std::vector<float> &normals, const std::vector<unsigned int> &indices);
 void checkOpenGLError();
-void checkForUserPrompt(GLFWwindow* window);
 unsigned int compileShader(const char *shaderSource, GLenum shaderType);
 unsigned int loadCubemap(std::vector<std::string> faces);
 void generateWaterPlane(std::vector<float> &waterVertices, float width, float depth);
@@ -63,6 +76,19 @@ unsigned int createSkyboxShaderProgram();
 
 // Light position
 glm::vec3 lightPos(0.0f, 2.0f, 5.0f);
+
+// TerrainParameters structure
+struct TerrainParameters
+{
+    int numOctaves;
+    float persistence;
+    float lacunarity;
+    float baseAmplitude;
+    float baseFrequency;
+};
+
+// Stack to keep track of terrain parameter history for undo functionality
+std::stack<TerrainParameters> terrainStateHistory;
 
 void updateTerrain(int width, int height,
                    std::vector<float>& vertices,
@@ -74,6 +100,16 @@ void updateTerrain(int width, int height,
                    float baseAmplitude,
                    float baseFrequency)
 {
+    // Save current state before changing
+    TerrainParameters currentParams = {
+        ::numOctaves,
+        ::persistence,
+        ::lacunarity,
+        ::baseAmplitude,
+        ::baseFrequency
+    };
+    terrainStateHistory.push(currentParams);
+
     // Update global parameters
     ::numOctaves = numOctaves;
     ::persistence = persistence;
@@ -158,22 +194,50 @@ std::string getAPIKey()
 
 std::string buildSystemPrompt()
 {
-    std::string systemPrompt = "You are an assistant integrated into a procedural terrain generation system built using C++ and OpenGL. \n\
-The system uses several terrain parameters, and the user input determines how the terrain is modified. Your task is to interpret natural \n\
-language inputs and adjust the terrain parameters accordingly, making moderate adjustments based on the user's intent.\n\
-The terrain is generated using Perlin noise. The parameters you need to adjust based on user input are:\n\
-- numOctaves (Integer): Controls the number of layers (octaves) of noise that are combined to generate the terrain. Higher values add more detail. **Current value is " + std::to_string(::numOctaves) + ".**\n\
-- persistence (Float): Controls the amplitude decay of each octave. Lower values create smoother terrain. **Current value is " + std::to_string(::persistence) + ".**\n\
-- lacunarity (Float): Controls the frequency increase between octaves. Higher values make the terrain features denser. **Current value is " + std::to_string(::lacunarity) + ".**\n\
-- baseAmplitude (Float): Determines the overall height variation. Higher values create taller hills. **Current value is " + std::to_string(::baseAmplitude) + ".**\n\
-- baseFrequency (Float): Controls the overall scale of the terrain features. Higher values make the features more frequent (smaller hills). **Current value is " + std::to_string(::baseFrequency) + ".**\n\
-You will extract terrain parameters from user input and call the updateTerrain function accordingly. Do not provide any explanations or additional text.";
+    std::string systemPrompt = R"(
+You are an assistant integrated into a procedural terrain generation system built using C++ and OpenGL.
+The system uses several terrain parameters, and the user input determines how the terrain is modified. Your task is to interpret natural
+language inputs and adjust the terrain parameters accordingly, making moderate adjustments based on the user's intent.
 
+The terrain is generated using Perlin noise. The parameters you need to adjust based on user input are:
+
+- numOctaves (Integer): Controls the number of layers (octaves) of noise that are combined to generate the terrain. Higher values add more detail. Current value is )" + std::to_string(::numOctaves) + R"(.
+- persistence (Float): Controls the amplitude decay of each octave. Lower values create smoother terrain. Current value is )" + std::to_string(::persistence) + R"(.
+- lacunarity (Float): Controls the frequency increase between octaves. Higher values make the terrain features denser. Current value is )" + std::to_string(::lacunarity) + R"(.
+- baseAmplitude (Float): Determines the overall height variation. Higher values create taller hills. Current value is )" + std::to_string(::baseAmplitude) + R"(.
+- baseFrequency (Float): Controls the overall scale of the terrain features. Higher values make the features more frequent (smaller hills). Current value is )" + std::to_string(::baseFrequency) + R"(.
+
+Remember the user's previous instructions and adjust parameters accordingly. If the user wants to revert changes or extend on previous commands, handle that appropriately.
+
+When adjusting parameters, make moderate changes based on the user's input, unless the user explicitly requests significant changes. Avoid changing parameters by large amounts unless necessary.
+
+You will extract terrain parameters from user input and call the updateTerrain function accordingly. Do not provide any explanations or additional text.
+)";
     return systemPrompt;
 }
 
+void initializeConversationHistory()
+{
+    nlohmann::json systemMessage = {
+        {"role", "system"},
+        {"content", buildSystemPrompt()}
+    };
+    conversationHistory.push_back(systemMessage);
+}
 
-std::string sendOpenAIRequest(const std::string& prompt)
+void truncateConversationHistory()
+{
+    // Define a maximum number of messages
+    const size_t maxMessages = 20;
+
+    if (conversationHistory.size() > maxMessages)
+    {
+        // Remove the oldest user and assistant messages, keeping the system prompt
+        conversationHistory.erase(conversationHistory.begin() + 1, conversationHistory.begin() + 3);
+    }
+}
+
+std::string sendOpenAIRequest(const std::string& userInput)
 {
     CURL* curl;
     CURLcode res;
@@ -191,21 +255,20 @@ std::string sendOpenAIRequest(const std::string& prompt)
         curl_easy_setopt(curl, CURLOPT_URL, "https://api.openai.com/v1/chat/completions");
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
+        // Add the user's message to the conversation history
+        conversationHistory.push_back({
+            {"role", "user"},
+            {"content", userInput}
+        });
+
         // Prepare the JSON payload
         nlohmann::json jsonPayload;
-        jsonPayload["model"] = "gpt-3.5-turbo";
-        // jsonPayload["model"] = "gpt-4-0613";
-        jsonPayload["messages"] = {
-            {
-                {"role", "system"},
-                {"content", buildSystemPrompt()}
-            },
-            {{"role", "user"}, {"content", prompt}}
-        };
+        jsonPayload["model"] = "gpt-4";
+        jsonPayload["messages"] = conversationHistory;
 
         // Add function definitions for function calling
         jsonPayload["functions"] = functionDefinitions;
-        jsonPayload["function_call"] = { {"name", "updateTerrain"} };
+        jsonPayload["function_call"] = "auto";
 
         // Convert JSON payload to string
         std::string payload = jsonPayload.dump();
@@ -230,24 +293,16 @@ std::string sendOpenAIRequest(const std::string& prompt)
         }
     }
 
-    // Log the response
-    // std::cout << "API Response: " << readBuffer << std::endl;
-
     return readBuffer;
-}
-
-std::string getUserInput()
-{
-    std::cout << "Enter terrain modification command: ";
-    std::string input;
-    std::getline(std::cin, input);
-    return input;
 }
 
 nlohmann::json parseOpenAIResponse(const std::string& response)
 {
     nlohmann::json jsonResponse = nlohmann::json::parse(response);
     auto message = jsonResponse["choices"][0]["message"];
+
+    // Add the assistant's message to the conversation history
+    conversationHistory.push_back(message);
 
     if (message.contains("function_call"))
     {
@@ -305,45 +360,234 @@ void invokeTerrainFunction(const nlohmann::json& functionCall)
         newBaseAmplitude = std::clamp(newBaseAmplitude, 0.1f, 5.0f);
         newBaseFrequency = std::clamp(newBaseFrequency, 0.1f, 5.0f);
 
-        std::cout << "Current Terrain Parameters: " << std::endl << std::endl;
-        std::cout << "Number of Octaves: " << numOctaves << std::endl;
-        std::cout << "Persistence: " << persistence << std::endl;
-        std::cout << "Lacunarity: " << lacunarity << std::endl;
-        std::cout << "Amplitude: " << baseAmplitude << std::endl;
-        std::cout << "Frequency: " << baseFrequency << std::endl;
-
         // Call the updateTerrain function
         updateTerrain(width, height, vertices, indices, normals,
                       newNumOctaves, newPersistence, newLacunarity,
                       newBaseAmplitude, newBaseFrequency);
+
+        // Prepare a string with the updated parameter values
+        std::ostringstream oss;
+        oss << "Assistant: Terrain parameters updated.\n\n";
+        oss << "Current Terrain Parameters:\n\n";
+        oss << "Number of Octaves: " << ::numOctaves << "\n";
+        oss << "Persistence: " << ::persistence << "\n";
+        oss << "Lacunarity: " << ::lacunarity << "\n";
+        oss << "Base Amplitude: " << ::baseAmplitude << "\n";
+        oss << "Base Frequency: " << ::baseFrequency << "\n";
+
+        // Append the parameter values to the chat history
+        chatHistory.append(oss.str().c_str());
+        scrollToBottom = true;
     }
+
     else
     {
         std::cerr << "Unknown function called: " << functionName << std::endl;
     }
 }
 
-
-bool userWantsToModifyTerrain(GLFWwindow *window)
+void undoTerrainChange()
 {
-    // Example implementation using a key press (e.g., 'M' key)
-    static bool keyPressed = false;
-
-    if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS)
+    if (!terrainStateHistory.empty())
     {
-        if (!keyPressed)
-        {
-            keyPressed = true;
-            return true;
-        }
+        TerrainParameters previousParams = terrainStateHistory.top();
+        terrainStateHistory.pop();
+
+        // Update parameters to previous state
+        ::numOctaves = previousParams.numOctaves;
+        ::persistence = previousParams.persistence;
+        ::lacunarity = previousParams.lacunarity;
+        ::baseAmplitude = previousParams.baseAmplitude;
+        ::baseFrequency = previousParams.baseFrequency;
+
+        // Regenerate the terrain
+        vertices.clear();
+        indices.clear();
+        normals.clear();
+        generateAdvancedTerrain(width, height, vertices, indices, normals);
+
+        // Update buffers and reload data to GPU if necessary
+        setupBuffers(VAO, VBO, EBO, vertices, normals, indices);
+
+        // Provide feedback to the user
+        chatHistory.append("Assistant: Reverted to previous terrain state.\n");
+        scrollToBottom = true;
     }
     else
     {
-        keyPressed = false;
+        chatHistory.append("Assistant: No previous terrain state to revert to.\n");
+        scrollToBottom = true;
     }
-    return false;
 }
 
+// Function to initialize ImGui
+void initImGui(GLFWwindow* window) {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // Enable keyboard controls
+
+    // Set up Dear ImGui style
+    ImGui::StyleColorsDark();
+
+    // Setup Platform/Renderer bindings
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330");
+}
+
+// Function to render the ImGui chat interface
+void renderChatInterface() {
+    // Start a new ImGui frame
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    // Set window size and position for the chat interface
+    ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_Once);
+    ImGui::SetNextWindowPos(ImVec2(50, 50), ImGuiCond_Once);
+
+    // Create chat interface window
+    ImGui::Begin("Terrain Assistant", nullptr, ImGuiWindowFlags_NoCollapse);
+
+    // Chat history with scrollbar
+    ImGui::BeginChild("ChatHistory", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), true, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::TextUnformatted(chatHistory.begin());
+    if (scrollToBottom)
+        ImGui::SetScrollHereY(1.0f);  // Scroll to bottom if needed
+    scrollToBottom = false;
+    ImGui::EndChild();
+
+    // Separator
+    ImGui::Separator();
+
+    // Input text box
+    ImGui::PushItemWidth(-40);
+    if (ImGui::InputText("##Input", inputBuffer, IM_ARRAYSIZE(inputBuffer), ImGuiInputTextFlags_EnterReturnsTrue))
+    {
+        if (strlen(inputBuffer) > 0)
+        {
+            // Append the user input to the chat history
+            chatHistory.append("User: ");
+            chatHistory.append(inputBuffer);
+            chatHistory.append("\n\n");
+
+            std::string userInput = std::string(inputBuffer);
+
+            // Check for undo command
+            if (userInput == "undo" || userInput == "revert")
+            {
+                undoTerrainChange();
+
+                // Optionally, add the undo command to the conversation history
+                conversationHistory.push_back({
+                    {"role", "user"},
+                    {"content", userInput}
+                });
+                conversationHistory.push_back({
+                    {"role", "assistant"},
+                    {"content", "Reverted to previous terrain state."}
+                });
+            }
+            else
+            {
+                // Send inputBuffer to OpenAI for processing
+                std::string response = sendOpenAIRequest(userInput);
+
+                // Parse and invoke terrain modification functions
+                if (!response.empty())
+                {
+                    try
+                    {
+                        nlohmann::json functionCall = parseOpenAIResponse(response);
+                        invokeTerrainFunction(functionCall);
+                    }
+                    catch (const std::exception& e)
+                    {
+                        chatHistory.append("Assistant: Error - ");
+                        chatHistory.append(e.what());
+                        chatHistory.append("\n");
+                        scrollToBottom = true;
+                    }
+                }
+            }
+
+            // Clear input buffer after processing
+            strcpy(inputBuffer, "");
+            scrollToBottom = true;
+        }
+    }
+    ImGui::PopItemWidth();
+
+    // Send button
+    ImGui::SameLine();
+    if (ImGui::Button("Send"))
+    {
+        if (strlen(inputBuffer) > 0)
+        {
+            // Append the user input to the chat history
+            chatHistory.append("User: ");
+            chatHistory.append(inputBuffer);
+            chatHistory.append("\n");
+
+            std::string userInput = std::string(inputBuffer);
+
+            // Check for undo command
+            if (userInput == "undo" || userInput == "revert")
+            {
+                undoTerrainChange();
+
+                // Optionally, add the undo command to the conversation history
+                conversationHistory.push_back({
+                    {"role", "user"},
+                    {"content", userInput}
+                });
+                conversationHistory.push_back({
+                    {"role", "assistant"},
+                    {"content", "Reverted to previous terrain state."}
+                });
+            }
+            else
+            {
+                // Send inputBuffer to OpenAI for processing
+                std::string response = sendOpenAIRequest(userInput);
+
+                // Parse and invoke terrain modification functions
+                if (!response.empty())
+                {
+                    try
+                    {
+                        nlohmann::json functionCall = parseOpenAIResponse(response);
+                        invokeTerrainFunction(functionCall);
+                    }
+                    catch (const std::exception& e)
+                    {
+                        chatHistory.append("Assistant: Error - ");
+                        chatHistory.append(e.what());
+                        chatHistory.append("\n");
+                        scrollToBottom = true;
+                    }
+                }
+            }
+
+            // Clear input buffer after processing
+            strcpy(inputBuffer, "");
+            scrollToBottom = true;
+        }
+    }
+
+    ImGui::End(); // End of chat interface
+
+    // Render ImGui frame
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+}
+
+// Cleanup function for ImGui
+void cleanupImGui() {
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+}
 
 
 // Main Function
@@ -362,7 +606,7 @@ int main()
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // Create a GLFW Window
-    GLFWwindow *window = glfwCreateWindow(1920, 1080, "Advanced Perlin Noise Terrain Grid", nullptr, nullptr);
+    GLFWwindow *window = glfwCreateWindow(1920, 1080, "LLM-Driven Terrain Generator", nullptr, nullptr);
     if (!window)
     {
         std::cerr << "Failed to create GLFW window" << std::endl;
@@ -390,9 +634,9 @@ int main()
     glEnable(GL_DEPTH_TEST);
 
     // Load Textures
-    unsigned int grassTexture = loadTexture("textures/grass.png");
-    unsigned int rockTexture = loadTexture("textures/rock.png");
-    unsigned int snowTexture = loadTexture("textures/snow.jpg");
+    unsigned int grassTexture = loadTexture("../resources/textures/grass.png");
+    unsigned int rockTexture = loadTexture("../resources/textures/rock.png");
+    unsigned int snowTexture = loadTexture("../resources/textures/snow.jpg");
 
     std::cout << "Grass texture ID: " << grassTexture << std::endl;
     std::cout << "Rock texture ID: " << rockTexture << std::endl;
@@ -400,12 +644,12 @@ int main()
 
     // Load Skybox Cubemap Textures
     std::vector<std::string> faces = {
-        "textures/right.jpg",
-        "textures/left.jpg",
-        "textures/top.jpg",
-        "textures/bottom.jpg",
-        "textures/front.jpg",
-        "textures/back.jpg"
+        "../resources/textures/right.jpg",
+        "../resources/textures/left.jpg",
+        "../resources/textures/top.jpg",
+        "../resources/textures/bottom.jpg",
+        "../resources/textures/front.jpg",
+        "../resources/textures/back.jpg"
     };
 
     unsigned int cubemapTexture = loadCubemap(faces);
@@ -471,7 +715,6 @@ int main()
     glUniform1i(glGetUniformLocation(skyboxShaderProgram, "skybox"), 0); // Set the skybox sampler uniform
 
     // Generate Advanced Terrain Grid
-    
     generateAdvancedTerrain(width, height, vertices, indices, normals);
 
     std::cout << "Vertices generated: " << vertices.size() << std::endl;
@@ -503,34 +746,27 @@ int main()
     // Setup Water Buffers
     setupWaterBuffers(waterVAO, waterVBO, waterVertices);
 
+    // Initialize ImGui
+    initImGui(window);
+
+    // Initialize conversation history
+    initializeConversationHistory();
+
     // Main Render Loop
     while (!glfwWindowShouldClose(window))
     {
-        // Process Input
-        processInput(window);
-
-        // check if the 'P' key is pressed for user input
-        if (userWantsToModifyTerrain(window))
-        {
-            std::string userInput = getUserInput();
-            std::string response = sendOpenAIRequest(userInput);
-
-            if (!response.empty())
-            {
-                try
-                {
-                    nlohmann::json functionCall = parseOpenAIResponse(response);
-                    invokeTerrainFunction(functionCall);
-                }
-                catch (const std::exception& e)
-                {
-                    std::cerr << "Error: " << e.what() << std::endl;
-                }
-            }
-        }
+        glfwPollEvents();
 
         // Clear Screen
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // Check if ImGui is capturing mouse and keyboard events
+        ImGuiIO& io = ImGui::GetIO();
+        
+        // If ImGui is not capturing the mouse or keyboard, process the camera and scene inputs
+        if (!io.WantCaptureMouse && !io.WantCaptureKeyboard) {
+            processInput(window);  // Only process input if ImGui is not active
+        }
 
         // Enable blending for transparent water rendering
         glEnable(GL_BLEND);
@@ -611,13 +847,18 @@ int main()
         // Restore default depth function
         glDepthFunc(GL_LESS);
 
+        //Render the chat interface
+        renderChatInterface();
+
         // Swap Buffers and Poll Events
         glfwSwapBuffers(window);
-        glfwPollEvents();
 
         // Check for OpenGL errors
         checkOpenGLError();
     }
+
+    // Cleanup ImGui resources
+    cleanupImGui();
 
     // Cleanup
     glDeleteVertexArrays(1, &VAO);
@@ -638,6 +879,13 @@ int main()
 // Process Input
 void processInput(GLFWwindow *window)
 {
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Skip input processing if ImGui is capturing the mouse or keyboard
+    if (io.WantCaptureMouse || io.WantCaptureKeyboard) {
+        return;  // Do not process input for the scene when ImGui is active
+    }
+
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
@@ -674,6 +922,13 @@ void processInput(GLFWwindow *window)
 // Mouse Movement Callback
 void mouse_callback(GLFWwindow *window, double xpos, double ypos)
 {
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Skip mouse input processing if ImGui is capturing the mouse
+    if (io.WantCaptureMouse) {
+        return;
+    }
+
     float xOffset = xpos - lastX;
     float yOffset = lastY - ypos;
 
@@ -693,6 +948,13 @@ void mouse_callback(GLFWwindow *window, double xpos, double ypos)
 // Mouse Button Callback
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods)
 {
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Skip mouse button input if ImGui is capturing the mouse
+    if (io.WantCaptureMouse) {
+        return;
+    }
+
     if (button == GLFW_MOUSE_BUTTON_LEFT)
     {
         if (action == GLFW_PRESS)
@@ -1287,18 +1549,5 @@ void checkOpenGLError()
     while ((err = glGetError()) != GL_NO_ERROR)
     {
         std::cerr << "OpenGL error: " << err << std::endl;
-    }
-}
-
-// Function to check for key press (for user prompt)
-void checkForUserPrompt(GLFWwindow *window)
-{
-    if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS) {
-        std::cout << "Please enter a prompt (e.g., 'Make the terrain rugged'):\n";
-        std::string userPrompt;
-        std::getline(std::cin, userPrompt); // Get prompt from the user
-
-        // Handle the prompt and regenerate terrain
-        // handleUserPrompt(userPrompt);
     }
 }

@@ -1,6 +1,6 @@
 # AI-Assisted Procedural Terrain Generator
 
-An advanced procedural terrain generation system built using C++ and OpenGL, featuring real-time terrain modification through natural language input powered by OpenAI's GPT-4 API.
+An advanced procedural terrain generation system built using C++ and OpenGL, featuring real-time terrain modification through natural language input using LLM.
 
 ![Terrain Generator Screenshot](resources/screenshots/demo_thumbnail.png)
 

@@ -38,7 +38,7 @@ An advanced procedural terrain generation system built using C++ and OpenGL, fea
 
 ## Demo
 
-[![Demo Video](resources/screenshots/demo_thumbnail.png)](https://youtu.be/3FGmjAPmEjk))
+[![Demo Video](resources/screenshots/demo_thumbnail.png)](https://youtu.be/3FGmjAPmEjk)
 
 *Click the image above to watch the demo video.*
 

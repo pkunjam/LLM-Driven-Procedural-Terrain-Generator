@@ -638,9 +638,18 @@ int main()
     unsigned int rockTexture = loadTexture("../resources/textures/rock.png");
     unsigned int snowTexture = loadTexture("../resources/textures/snow.jpg");
 
+    // Add normal map loading here
+    unsigned int grassNormalMap = loadTexture("../resources/textures/grass_normal.jpg");
+    unsigned int rockNormalMap = loadTexture("../resources/textures/rock_normal.jpg");
+    unsigned int snowNormalMap = loadTexture("../resources/textures/snow_normal.jpg");
+
     std::cout << "Grass texture ID: " << grassTexture << std::endl;
     std::cout << "Rock texture ID: " << rockTexture << std::endl;
     std::cout << "Snow texture ID: " << snowTexture << std::endl;
+
+    std::cout << "grassNormalMap texture ID: " << grassNormalMap << std::endl;
+    std::cout << "rockNormalMap texture ID: " << rockNormalMap << std::endl;
+    std::cout << "snowNormalMap texture ID: " << snowNormalMap << std::endl;
 
     // Load Skybox Cubemap Textures
     std::vector<std::string> faces = {
@@ -730,6 +739,9 @@ int main()
     glUniform1i(glGetUniformLocation(shaderProgram, "grassTexture"), 0);
     glUniform1i(glGetUniformLocation(shaderProgram, "rockTexture"), 1);
     glUniform1i(glGetUniformLocation(shaderProgram, "snowTexture"), 2);
+    glUniform1i(glGetUniformLocation(shaderProgram, "grassNormal"), 3);
+    glUniform1i(glGetUniformLocation(shaderProgram, "rockNormal"), 4);
+    glUniform1i(glGetUniformLocation(shaderProgram, "snowNormal"), 5);
 
     // Setup Buffers
     setupBuffers(VAO, VBO, EBO, vertices, normals, indices);
@@ -778,12 +790,18 @@ int main()
         // Bind Textures
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, grassTexture);
-
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, rockTexture);
-
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, snowTexture);
+
+        // Add normal map binding here
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, grassNormalMap);
+        glActiveTexture(GL_TEXTURE4);
+        glBindTexture(GL_TEXTURE_2D, rockNormalMap);
+        glActiveTexture(GL_TEXTURE5);
+        glBindTexture(GL_TEXTURE_2D, snowNormalMap);
 
         // View/Projection Transformations
         glm::mat4 view = camera.GetViewMatrix();
@@ -988,6 +1006,9 @@ void scroll_callback(GLFWwindow *window, double xOffset, double yOffset)
 // Generate Advanced Terrain with Multiple Layers of Perlin Noise
 void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices, std::vector<float> &normals)
 {
+    float minHeight = std::numeric_limits<float>::max();
+    float maxHeight = std::numeric_limits<float>::lowest();
+    
     float scale = 2.0f / (std::max(width, height) - 1);
 
     // Clear previous normals
@@ -1037,8 +1058,14 @@ void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices
                 indices.push_back(bottomLeft);
                 indices.push_back(bottomRight);
             }
+
+            // Track min/max heights
+            minHeight = std::min(minHeight, heightValue);
+            maxHeight = std::max(maxHeight, heightValue);
         }
     }
+
+    std::cout << "Terrain Height Range: " << minHeight << " to " << maxHeight << std::endl;
 
     // Calculate normals by averaging adjacent triangle normals
     for (size_t i = 0; i < indices.size(); i += 3)
@@ -1121,94 +1148,99 @@ unsigned int createShaderProgram()
 {
     const char *vertexShaderSource = R"glsl(
         #version 330 core
-        layout(location = 0) in vec3 aPos;         // Position attribute
-        layout(location = 1) in vec2 aTexCoord;    // Texture coordinate attribute
-        layout(location = 2) in vec3 aNormal;      // Normal attribute
+        layout(location = 0) in vec3 aPos;
+        layout(location = 1) in vec2 aTexCoord;
+        layout(location = 2) in vec3 aNormal;
 
-        out vec2 TexCoords;        // Pass texture coordinates to fragment shader
-        out vec3 FragPos;          // Pass fragment position to fragment shader
-        out vec3 Normal;           // Pass normal to fragment shader
+        out vec2 TexCoords;
+        out vec3 FragPos;
+        out vec3 Normal;
+        out mat3 TBN;  // Tangent-Bitangent-Normal matrix
 
-        uniform mat4 transform;    // MVP matrix (combined model, view, projection)
-        uniform mat4 model;        // Model matrix for normal transformation
+        uniform mat4 transform;
+        uniform mat4 model;
 
         void main()
         {
-            // Transform the vertex position
             FragPos = vec3(model * vec4(aPos, 1.0));
-            
-            // Correct the normals based on model transformation (transpose inverse)
             Normal = mat3(transpose(inverse(model))) * aNormal;
-
-            // Pass through texture coordinates
             TexCoords = aTexCoord;
 
-            // Apply the transform matrix (MVP) to compute final position
+            // Calculate tangent space basis vectors
+            vec3 T = normalize(vec3(model * vec4(cross(vec3(0.0, 0.0, 1.0), aNormal), 0.0)));
+            vec3 B = normalize(vec3(model * vec4(cross(aNormal, T), 0.0)));
+            vec3 N = normalize(Normal);
+            TBN = mat3(T, B, N);
+
             gl_Position = transform * vec4(aPos, 1.0);
         }
-
-
     )glsl";
 
     const char *fragmentShaderSource = R"glsl(
-        
         #version 330 core
-        in vec2 TexCoords;         // Incoming texture coordinates
-        in vec3 FragPos;           // Incoming fragment position (world space)
-        in vec3 Normal;            // Incoming normal vector
+        in vec2 TexCoords;
+        in vec3 FragPos;
+        in vec3 Normal;
+        in mat3 TBN;
 
-        out vec4 FragColor;        // Final color output
+        out vec4 FragColor;
 
-        uniform vec3 lightPos;     // Light source position
-        uniform vec3 viewPos;      // Camera position
-        uniform sampler2D grassTexture;  // Grass texture
-        uniform sampler2D rockTexture;   // Rock texture
-        uniform sampler2D snowTexture;   // Snow texture
+        uniform vec3 lightPos;
+        uniform vec3 viewPos;
+        uniform sampler2D grassTexture;
+        uniform sampler2D rockTexture;
+        uniform sampler2D snowTexture;
 
         void main()
         {
-            // Phong lighting components
-            vec3 ambientLight = vec3(0.3); // Ambient light strength
+            // Use the actual height without normalization since we know the range
+            float height = FragPos.y;
+            float slope = 1.0 - abs(dot(normalize(Normal), vec3(0.0, 1.0, 0.0)));
+            
+            // Adjust these values based on your height range (0.29 to 0.60)
+            float snowLine = 0.5;      // Lowered from 0.7 to match your height range
+            float rockLine = 0.4;      // Adjusted for your height range
+            float slopeThreshold = 0.4; // Increased to show less rock on flatter areas
+            
+            // Calculate blend weights with smooth transitions
+            float snowBlend = smoothstep(snowLine, snowLine + 0.05, height) * (1.0 - smoothstep(0.3, 0.5, slope));
+            float rockBlend = smoothstep(rockLine, rockLine + 0.05, height) * (1.0 - snowBlend) + smoothstep(slopeThreshold - 0.1, slopeThreshold, slope);
+            float grassBlend = 1.0 - snowBlend - rockBlend;
 
-            // Normalized vectors for lighting calculations
-            vec3 norm = normalize(Normal);
+            // Sample textures with adjusted scales
+            vec2 scaledCoords = TexCoords * 2.0; // Base scale for all textures
+            vec4 snowColor = texture(snowTexture, scaledCoords);
+            vec4 rockColor = texture(rockTexture, scaledCoords * 1.5);
+            vec4 grassColor = texture(grassTexture, scaledCoords * 2.0);
+            
+            // Blend colors
+            vec4 baseColor = grassColor * grassBlend + 
+                            rockColor * rockBlend + 
+                            snowColor * snowBlend;
+
+            // Enhanced lighting
+            vec3 normal = normalize(Normal);
             vec3 lightDir = normalize(lightPos - FragPos);
             vec3 viewDir = normalize(viewPos - FragPos);
-
-            // Diffuse lighting (Lambert's cosine law)
-            float diff = max(dot(norm, lightDir), 0.0);
-            vec3 diffuse = diff * vec3(1.0);
-
-            // Specular lighting (Phong reflection)
-            vec3 reflectDir = reflect(-lightDir, norm);
+            
+            // Ambient
+            float ambientStrength = 0.3;
+            vec3 ambient = vec3(ambientStrength);
+            
+            // Diffuse
+            float diff = max(dot(normal, lightDir), 0.0);
+            vec3 diffuse = vec3(diff);
+            
+            // Specular
+            vec3 reflectDir = reflect(-lightDir, normal);
             float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
-            vec3 specular = 0.5 * spec * vec3(1.0); // Specular strength
-
-            // Combine ambient, diffuse, and specular lighting
-            vec3 lighting = ambientLight + diffuse + specular;
-
-            // Texture blending based on height
-            vec4 grassColor = texture(grassTexture, TexCoords);
-            vec4 rockColor = texture(rockTexture, TexCoords);
-            vec4 snowColor = texture(snowTexture, TexCoords);
-
-            // Basic height-based blending
-            vec4 baseColor;
-            if (FragPos.y < 0.3)
-                baseColor = grassColor;
-            else if (FragPos.y < 0.6)
-                baseColor = mix(grassColor, rockColor, (FragPos.y - 0.3) / 0.3);
-            else
-                baseColor = mix(rockColor, snowColor, (FragPos.y - 0.6) / 0.4);
-                
-
-            // Final color is the product of lighting and base color
-            FragColor = vec4(lighting, 1.0) * baseColor;
-            // FragColor = vec4(normalize(Normal) * 0.5 + 0.5, 1.0); // This will map the normals to RGB colors
-
+            vec3 specular = vec3(0.2 * spec);
+            
+            // Combine lighting
+            vec3 lighting = ambient + diffuse + specular;
+            
+            FragColor = vec4(baseColor.rgb * lighting, 1.0);
         }
-
-        
     )glsl";
 
     unsigned int vertexShader = compileShader(vertexShaderSource, GL_VERTEX_SHADER);

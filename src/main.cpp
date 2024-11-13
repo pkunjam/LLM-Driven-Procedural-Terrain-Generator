@@ -27,11 +27,17 @@ static char inputBuffer[256] = "";
 static bool scrollToBottom = false;
 
 // Global variables for terrain parameters
-int numOctaves = 4;
-float persistence = 0.5f;
-float lacunarity = 2.0f;
-float baseAmplitude = 0.5f;
-float baseFrequency = 0.4f;
+int numOctaves = 6;                  // Increased from 4 for more detail
+float persistence = 0.5f;            // Good default value
+float lacunarity = 2.0f;            // Good default value
+float baseAmplitude = 1.0f;         // Increased from 0.5 for more height variation
+float baseFrequency = 0.8f;         // Increased from 0.4 for more variation
+
+// Mountain parameters
+float mountainWeight = 0.45f;        // Increased from 0.35 for more pronounced mountains
+float mountainFrequency = 1.2f;      // Good value for mountain-scale features
+float detailWeight = 0.25f;          // Increased from 0.15 for more surface detail
+float detailFrequency = 2.0f;        // Higher frequency for smaller details
 
 // Conversation history for LLM context
 std::vector<nlohmann::json> conversationHistory;
@@ -85,20 +91,28 @@ struct TerrainParameters
     float lacunarity;
     float baseAmplitude;
     float baseFrequency;
+    float mountainWeight;
+    float mountainFrequency;
+    float detailWeight;
+    float detailFrequency;
 };
 
 // Stack to keep track of terrain parameter history for undo functionality
 std::stack<TerrainParameters> terrainStateHistory;
 
 void updateTerrain(int width, int height,
-                   std::vector<float>& vertices,
-                   std::vector<unsigned int>& indices,
-                   std::vector<float>& normals,
-                   int numOctaves,
-                   float persistence,
-                   float lacunarity,
-                   float baseAmplitude,
-                   float baseFrequency)
+                  std::vector<float>& vertices,
+                  std::vector<unsigned int>& indices,
+                  std::vector<float>& normals,
+                  int numOctaves,
+                  float persistence,
+                  float lacunarity,
+                  float baseAmplitude,
+                  float baseFrequency,
+                  float mountainWeight,
+                  float mountainFrequency,
+                  float detailWeight,
+                  float detailFrequency)
 {
     // Save current state before changing
     TerrainParameters currentParams = {
@@ -106,9 +120,61 @@ void updateTerrain(int width, int height,
         ::persistence,
         ::lacunarity,
         ::baseAmplitude,
-        ::baseFrequency
+        ::baseFrequency,
+        ::mountainWeight,
+        ::mountainFrequency,
+        ::detailWeight,
+        ::detailFrequency
     };
     terrainStateHistory.push(currentParams);
+
+    // Limit the changes to reasonable amounts
+    int deltaNumOctaves = numOctaves - ::numOctaves;
+    if (deltaNumOctaves > 2) numOctaves = ::numOctaves + 2;
+    if (deltaNumOctaves < -2) numOctaves = ::numOctaves - 2;
+
+    float deltaPersistence = persistence - ::persistence;
+    if (deltaPersistence > 0.2f) persistence = ::persistence + 0.2f;
+    if (deltaPersistence < -0.2f) persistence = ::persistence - 0.2f;
+
+    float deltaLacunarity = lacunarity - ::lacunarity;
+    if (deltaLacunarity > 0.5f) lacunarity = ::lacunarity + 0.5f;
+    if (deltaLacunarity < -0.5f) lacunarity = ::lacunarity - 0.5f;
+
+    float deltaBaseAmplitude = baseAmplitude - ::baseAmplitude;
+    if (deltaBaseAmplitude > 0.5f) baseAmplitude = ::baseAmplitude + 0.5f;
+    if (deltaBaseAmplitude < -0.5f) baseAmplitude = ::baseAmplitude - 0.5f;
+
+    float deltaBaseFrequency = baseFrequency - ::baseFrequency;
+    if (deltaBaseFrequency > 0.5f) baseFrequency = ::baseFrequency + 0.5f;
+    if (deltaBaseFrequency < -0.5f) baseFrequency = ::baseFrequency - 0.5f;
+
+    float deltaMountainWeight = mountainWeight - ::mountainWeight;
+    if (deltaMountainWeight > 0.2f) mountainWeight = ::mountainWeight + 0.2f;
+    if (deltaMountainWeight < -0.2f) mountainWeight = ::mountainWeight - 0.2f;
+
+    float deltaMountainFreq = mountainFrequency - ::mountainFrequency;
+    if (deltaMountainFreq > 0.3f) mountainFrequency = ::mountainFrequency + 0.3f;
+    if (deltaMountainFreq < -0.3f) mountainFrequency = ::mountainFrequency - 0.3f;
+
+    float deltaDetailWeight = detailWeight - ::detailWeight;
+    if (deltaDetailWeight > 0.1f) detailWeight = ::detailWeight + 0.1f;
+    if (deltaDetailWeight < -0.1f) detailWeight = ::detailWeight - 0.1f;
+
+    float deltaDetailFreq = detailFrequency - ::detailFrequency;
+    if (deltaDetailFreq > 0.4f) detailFrequency = ::detailFrequency + 0.4f;
+    if (deltaDetailFreq < -0.4f) detailFrequency = ::detailFrequency - 0.4f;
+
+    // Ensure parameters are within valid ranges
+    numOctaves = std::clamp(numOctaves, 1, 10);
+    persistence = std::clamp(persistence, 0.1f, 1.0f);
+    lacunarity = std::clamp(lacunarity, 1.0f, 4.0f);
+    baseAmplitude = std::clamp(baseAmplitude, 0.1f, 5.0f);
+    baseFrequency = std::clamp(baseFrequency, 0.1f, 5.0f);
+    mountainWeight = std::clamp(mountainWeight, 0.0f, 1.0f);
+    mountainFrequency = std::clamp(mountainFrequency, 0.1f, 2.0f);
+    detailWeight = std::clamp(detailWeight, 0.0f, 0.5f);
+    detailFrequency = std::clamp(detailFrequency, 0.1f, 4.0f);
 
     // Update global parameters
     ::numOctaves = numOctaves;
@@ -116,6 +182,10 @@ void updateTerrain(int width, int height,
     ::lacunarity = lacunarity;
     ::baseAmplitude = baseAmplitude;
     ::baseFrequency = baseFrequency;
+    ::mountainWeight = mountainWeight;
+    ::mountainFrequency = mountainFrequency;
+    ::detailWeight = detailWeight;
+    ::detailFrequency = detailFrequency;
 
     // Clear existing data
     vertices.clear();
@@ -167,9 +237,33 @@ nlohmann::json functionDefinitions = nlohmann::json::array({
                             {"description", "Base frequency for terrain features (controls feature size)."},
                             {"minimum", 0.1},
                             {"maximum", 5.0}
+                        }},
+                        {"mountainWeight", {
+                            {"type", "number"},
+                            {"description", "Weight of mountain features in the terrain."},
+                            {"minimum", 0.0},
+                            {"maximum", 1.0}
+                        }},
+                        {"mountainFrequency", {
+                            {"type", "number"},
+                            {"description", "Frequency of mountain features."},
+                            {"minimum", 0.1},
+                            {"maximum", 2.0}
+                        }},
+                        {"detailWeight", {
+                            {"type", "number"},
+                            {"description", "Weight of detail features in the terrain."},
+                            {"minimum", 0.0},
+                            {"maximum", 0.5}
+                        }},
+                        {"detailFrequency", {
+                            {"type", "number"},
+                            {"description", "Frequency of detail features."},
+                            {"minimum", 0.1},
+                            {"maximum", 4.0}
                         }}
                     }},
-                {"required", nlohmann::json::array({"numOctaves", "persistence", "lacunarity", "baseAmplitude", "baseFrequency"})}
+                {"required", nlohmann::json::array({"numOctaves", "persistence", "lacunarity", "baseAmplitude", "baseFrequency", "mountainWeight", "mountainFrequency", "detailWeight", "detailFrequency"})}
             }}
     }
 });
@@ -201,17 +295,35 @@ language inputs and adjust the terrain parameters accordingly, making moderate a
 
 The terrain is generated using Perlin noise. The parameters you need to adjust based on user input are:
 
-- numOctaves (Integer): Controls the number of layers (octaves) of noise that are combined to generate the terrain. Higher values add more detail. Current value is )" + std::to_string(::numOctaves) + R"(.
-- persistence (Float): Controls the amplitude decay of each octave. Lower values create smoother terrain. Current value is )" + std::to_string(::persistence) + R"(.
-- lacunarity (Float): Controls the frequency increase between octaves. Higher values make the terrain features denser. Current value is )" + std::to_string(::lacunarity) + R"(.
-- baseAmplitude (Float): Determines the overall height variation. Higher values create taller hills. Current value is )" + std::to_string(::baseAmplitude) + R"(.
-- baseFrequency (Float): Controls the overall scale of the terrain features. Higher values make the features more frequent (smaller hills). Current value is )" + std::to_string(::baseFrequency) + R"(.
+- numOctaves (Integer): Controls detail level, range 1-10. Higher values add more detail layers. Current value is )" + std::to_string(::numOctaves) + R"(.
+- persistence (Float): Controls feature amplitude decay, range 0.1-1.0. Higher values create more dramatic height variations. Current value is )" + std::to_string(::persistence) + R"(.
+- lacunarity (Float): Controls frequency increase between octaves, range 1.0-4.0. Higher values create denser features. Current value is )" + std::to_string(::lacunarity) + R"(.
+- baseAmplitude (Float): Controls overall height variation, range 0.1-5.0. Higher values create taller terrain. Current value is )" + std::to_string(::baseAmplitude) + R"(.
+- baseFrequency (Float): Controls base feature scale, range 0.1-5.0. Higher values create more frequent features. Current value is )" + std::to_string(::baseFrequency) + R"(.
+- mountainWeight (Float): Controls mountain influence, range 0.0-1.0. Higher values create more pronounced mountains. Current value is )" + std::to_string(::mountainWeight) + R"(.
+- mountainFrequency (Float): Controls mountain feature scale, range 0.1-2.0. Higher values create more frequent peaks. Current value is )" + std::to_string(::mountainFrequency) + R"(.
+- detailWeight (Float): Controls small detail influence, range 0.0-0.5. Higher values add more surface roughness. Current value is )" + std::to_string(::detailWeight) + R"(.
+- detailFrequency (Float): Controls detail feature scale, range 0.1-4.0. Higher values create finer surface details. Current value is )" + std::to_string(::detailFrequency) + R"(.
 
 Remember the user's previous instructions and adjust parameters accordingly. If the user wants to revert changes or extend on previous commands, handle that appropriately.
 
-When adjusting parameters, make moderate changes based on the user's input, unless the user explicitly requests significant changes. Avoid changing parameters by large amounts unless necessary.
-
 You will extract terrain parameters from user input and call the updateTerrain function accordingly. Do not provide any explanations or additional text.
+
+Example valid function call:
+{
+    "name": "updateTerrain",
+    "arguments": {
+        "numOctaves": 6,
+        "persistence": 0.5,
+        "lacunarity": 2.0,
+        "baseAmplitude": 1.0,
+        "baseFrequency": 0.8,
+        "mountainWeight": 0.45,
+        "mountainFrequency": 1.2,
+        "detailWeight": 0.25,
+        "detailFrequency": 2.0
+    }
+}
 )";
     return systemPrompt;
 }
@@ -331,39 +443,17 @@ void invokeTerrainFunction(const nlohmann::json& functionCall)
         float newLacunarity = args.value("lacunarity", ::lacunarity);
         float newBaseAmplitude = args.value("baseAmplitude", ::baseAmplitude);
         float newBaseFrequency = args.value("baseFrequency", ::baseFrequency);
-
-        // Limit the changes to reasonable amounts
-        int deltaNumOctaves = newNumOctaves - ::numOctaves;
-        if (deltaNumOctaves > 2) newNumOctaves = ::numOctaves + 2;
-        if (deltaNumOctaves < -2) newNumOctaves = ::numOctaves - 2;
-
-        float deltaPersistence = newPersistence - ::persistence;
-        if (deltaPersistence > 0.2f) newPersistence = ::persistence + 0.2f;
-        if (deltaPersistence < -0.2f) newPersistence = ::persistence - 0.2f;
-
-        float deltaLacunarity = newLacunarity - ::lacunarity;
-        if (deltaLacunarity > 0.5f) newLacunarity = ::lacunarity + 0.5f;
-        if (deltaLacunarity < -0.5f) newLacunarity = ::lacunarity - 0.5f;
-
-        float deltaBaseAmplitude = newBaseAmplitude - ::baseAmplitude;
-        if (deltaBaseAmplitude > 0.5f) newBaseAmplitude = ::baseAmplitude + 0.5f;
-        if (deltaBaseAmplitude < -0.5f) newBaseAmplitude = ::baseAmplitude - 0.5f;
-
-        float deltaBaseFrequency = newBaseFrequency - ::baseFrequency;
-        if (deltaBaseFrequency > 0.5f) newBaseFrequency = ::baseFrequency + 0.5f;
-        if (deltaBaseFrequency < -0.5f) newBaseFrequency = ::baseFrequency - 0.5f;
-
-        // Ensure parameters are within valid ranges
-        newNumOctaves = std::clamp(newNumOctaves, 1, 10);
-        newPersistence = std::clamp(newPersistence, 0.1f, 1.0f);
-        newLacunarity = std::clamp(newLacunarity, 1.0f, 4.0f);
-        newBaseAmplitude = std::clamp(newBaseAmplitude, 0.1f, 5.0f);
-        newBaseFrequency = std::clamp(newBaseFrequency, 0.1f, 5.0f);
+        float newMountainWeight = args.value("mountainWeight", 0.0f);
+        float newMountainFrequency = args.value("mountainFrequency", 0.0f);
+        float newDetailWeight = args.value("detailWeight", 0.0f);
+        float newDetailFrequency = args.value("detailFrequency", 0.0f);
 
         // Call the updateTerrain function
         updateTerrain(width, height, vertices, indices, normals,
-                      newNumOctaves, newPersistence, newLacunarity,
-                      newBaseAmplitude, newBaseFrequency);
+                     newNumOctaves, newPersistence, newLacunarity,
+                     newBaseAmplitude, newBaseFrequency,
+                     newMountainWeight, newMountainFrequency,
+                     newDetailWeight, newDetailFrequency);
 
         // Prepare a string with the updated parameter values
         std::ostringstream oss;
@@ -374,6 +464,10 @@ void invokeTerrainFunction(const nlohmann::json& functionCall)
         oss << "Lacunarity: " << ::lacunarity << "\n";
         oss << "Base Amplitude: " << ::baseAmplitude << "\n";
         oss << "Base Frequency: " << ::baseFrequency << "\n";
+        oss << "Mountain Weight: " << ::mountainWeight << "\n";
+        oss << "Mountain Frequency: " << ::mountainFrequency << "\n";
+        oss << "Detail Weight: " << ::detailWeight << "\n";
+        oss << "Detail Frequency: " << ::detailFrequency << "\n";
 
         // Append the parameter values to the chat history
         chatHistory.append(oss.str().c_str());
@@ -399,6 +493,10 @@ void undoTerrainChange()
         ::lacunarity = previousParams.lacunarity;
         ::baseAmplitude = previousParams.baseAmplitude;
         ::baseFrequency = previousParams.baseFrequency;
+        ::mountainWeight = previousParams.mountainWeight;
+        ::mountainFrequency = previousParams.mountainFrequency;
+        ::detailWeight = previousParams.detailWeight;
+        ::detailFrequency = previousParams.detailFrequency;
 
         // Regenerate the terrain
         vertices.clear();
@@ -1006,58 +1104,58 @@ void scroll_callback(GLFWwindow *window, double xOffset, double yOffset)
 // Generate Advanced Terrain with Multiple Layers of Perlin Noise
 void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices, std::vector<unsigned int> &indices, std::vector<float> &normals)
 {
+    // Clear all vectors
+    vertices.clear();
+    indices.clear();
+    normals.clear();
+    
     float minHeight = std::numeric_limits<float>::max();
     float maxHeight = std::numeric_limits<float>::lowest();
     
     float scale = 2.0f / (std::max(width, height) - 1);
-
+    
     // Clear previous normals
-    normals.resize(width * height * 3, 0.0f); // x, y, z normals for each vertex
-
-    for (int z = 0; z < height; ++z)
-    {
-        for (int x = 0; x < width; ++x)
-        {
+    normals.resize(width * height * 3, 0.0f);
+    
+    // Generate vertices
+    for (int z = 0; z < height; ++z) {
+        for (int x = 0; x < width; ++x) {
             float xPos = (x * scale) - 0.5f;
             float zPos = (z * scale) - 0.5f;
 
-            float heightValue = 0.0f;
-            float amplitude = baseAmplitude;
-            float frequency = baseFrequency;
+            // Base terrain using classic Perlin noise
+            float baseNoise = perlin.noise(xPos * baseFrequency, 
+                                         zPos * baseFrequency, 
+                                         numOctaves, 
+                                         persistence);
 
-            for (int octave = 0; octave < numOctaves; ++octave)
-            {
-                heightValue += amplitude * perlin.noise(xPos * frequency, zPos * frequency, numOctaves, persistence);
-                amplitude *= persistence;
-                frequency *= lacunarity;
-            }
+            // Mountain ridges using ridged noise
+            float mountainNoise = perlin.ridgedNoise(xPos * mountainFrequency,
+                                                    zPos * mountainFrequency,
+                                                    numOctaves,
+                                                    persistence);
+
+            // Detail features using billow noise
+            float detailNoise = perlin.billow(xPos * detailFrequency,
+                                            zPos * detailFrequency,
+                                            numOctaves / 2,
+                                            persistence);
+
+                        // Combine different noise types with improved weighting
+            float heightValue = baseNoise * (1.0f - mountainWeight - detailWeight) +  // Base terrain
+                            mountainNoise * mountainWeight +                        // Mountain features
+                            detailNoise * detailWeight;               
+
+            // Add some non-linear transformation to enhance contrast
+            heightValue = pow(heightValue, 1.2f);  // Slightly emphasize higher areas
 
             vertices.push_back(xPos);
-            vertices.push_back(heightValue); // Height
+            vertices.push_back(heightValue);
             vertices.push_back(zPos);
 
             // Texture coordinates
             vertices.push_back(static_cast<float>(x) / (width - 1));
             vertices.push_back(static_cast<float>(z) / (height - 1));
-
-            // If not at the last row/column, generate indices for this quad
-            if (x < width - 1 && z < height - 1)
-            {
-                int topLeft = z * width + x;
-                int topRight = topLeft + 1;
-                int bottomLeft = (z + 1) * width + x;
-                int bottomRight = bottomLeft + 1;
-
-                // Triangle 1
-                indices.push_back(topLeft);
-                indices.push_back(bottomLeft);
-                indices.push_back(topRight);
-
-                // Triangle 2
-                indices.push_back(topRight);
-                indices.push_back(bottomLeft);
-                indices.push_back(bottomRight);
-            }
 
             // Track min/max heights
             minHeight = std::min(minHeight, heightValue);
@@ -1065,17 +1163,35 @@ void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices
         }
     }
 
+    // Generate indices for triangle strips
+    for (int z = 0; z < height - 1; ++z) {
+        for (int x = 0; x < width - 1; ++x) {
+            unsigned int topLeft = z * width + x;
+            unsigned int topRight = topLeft + 1;
+            unsigned int bottomLeft = (z + 1) * width + x;
+            unsigned int bottomRight = bottomLeft + 1;
+
+            // First triangle
+            indices.push_back(topLeft);
+            indices.push_back(bottomLeft);
+            indices.push_back(topRight);
+
+            // Second triangle
+            indices.push_back(topRight);
+            indices.push_back(bottomLeft);
+            indices.push_back(bottomRight);
+        }
+    }
+
     std::cout << "Terrain Height Range: " << minHeight << " to " << maxHeight << std::endl;
 
     // Calculate normals by averaging adjacent triangle normals
-    for (size_t i = 0; i < indices.size(); i += 3)
-    {
-        // Get vertex indices for this triangle
+    for (size_t i = 0; i < indices.size(); i += 3) {
         unsigned int idx0 = indices[i];
         unsigned int idx1 = indices[i + 1];
         unsigned int idx2 = indices[i + 2];
 
-        // Get vertex positions
+        // Get vertex positions (5 is stride: 3 for position, 2 for texture)
         glm::vec3 v0(vertices[5 * idx0], vertices[5 * idx0 + 1], vertices[5 * idx0 + 2]);
         glm::vec3 v1(vertices[5 * idx1], vertices[5 * idx1 + 1], vertices[5 * idx1 + 2]);
         glm::vec3 v2(vertices[5 * idx2], vertices[5 * idx2 + 1], vertices[5 * idx2 + 2]);
@@ -1102,8 +1218,7 @@ void generateAdvancedTerrain(int width, int height, std::vector<float> &vertices
     }
 
     // Normalize the normals for each vertex
-    for (int i = 0; i < width * height; ++i)
-    {
+    for (int i = 0; i < width * height; ++i) {
         glm::vec3 normal(normals[3 * i], normals[3 * i + 1], normals[3 * i + 2]);
         normal = glm::normalize(normal);
         normals[3 * i] = normal.x;
@@ -1192,55 +1307,54 @@ unsigned int createShaderProgram()
         uniform sampler2D snowTexture;
 
         void main()
-        {
-            // Use the actual height without normalization since we know the range
-            float height = FragPos.y;
-            float slope = 1.0 - abs(dot(normalize(Normal), vec3(0.0, 1.0, 0.0)));
-            
-            // Adjust these values based on your height range (0.29 to 0.60)
-            float snowLine = 0.5;      // Lowered from 0.7 to match your height range
-            float rockLine = 0.4;      // Adjusted for your height range
-            float slopeThreshold = 0.4; // Increased to show less rock on flatter areas
-            
-            // Calculate blend weights with smooth transitions
-            float snowBlend = smoothstep(snowLine, snowLine + 0.05, height) * (1.0 - smoothstep(0.3, 0.5, slope));
-            float rockBlend = smoothstep(rockLine, rockLine + 0.05, height) * (1.0 - snowBlend) + smoothstep(slopeThreshold - 0.1, slopeThreshold, slope);
-            float grassBlend = 1.0 - snowBlend - rockBlend;
-
-            // Sample textures with adjusted scales
-            vec2 scaledCoords = TexCoords * 2.0; // Base scale for all textures
-            vec4 snowColor = texture(snowTexture, scaledCoords);
-            vec4 rockColor = texture(rockTexture, scaledCoords * 1.5);
-            vec4 grassColor = texture(grassTexture, scaledCoords * 2.0);
-            
-            // Blend colors
-            vec4 baseColor = grassColor * grassBlend + 
-                            rockColor * rockBlend + 
-                            snowColor * snowBlend;
-
-            // Enhanced lighting
-            vec3 normal = normalize(Normal);
-            vec3 lightDir = normalize(lightPos - FragPos);
-            vec3 viewDir = normalize(viewPos - FragPos);
-            
-            // Ambient
-            float ambientStrength = 0.3;
-            vec3 ambient = vec3(ambientStrength);
-            
-            // Diffuse
-            float diff = max(dot(normal, lightDir), 0.0);
-            vec3 diffuse = vec3(diff);
-            
-            // Specular
-            vec3 reflectDir = reflect(-lightDir, normal);
-            float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
-            vec3 specular = vec3(0.2 * spec);
-            
-            // Combine lighting
-            vec3 lighting = ambient + diffuse + specular;
-            
-            FragColor = vec4(baseColor.rgb * lighting, 1.0);
-        }
+{
+    // Use the actual height without normalization since we know the range
+    float height = FragPos.y;
+    float slope = 1.0 - abs(dot(normalize(Normal), vec3(0.0, 1.0, 0.0)));
+    
+    // Adjust thresholds to show more grass
+    float snowLine = 0.4;        // Raised snow line
+    float rockLine = 0.25;       // Raised rock line
+    float slopeThreshold = 0.7;  // Increased slope threshold for more grass on gentler slopes
+    
+    // Smoother transitions with wider ranges
+    float snowBlend = smoothstep(snowLine, snowLine + 0.1, height);
+    snowBlend *= (1.0 - smoothstep(0.4, 0.8, slope)); // Less snow on steep slopes
+    
+    float rockBlend = smoothstep(rockLine, rockLine + 0.1, height);
+    rockBlend = mix(rockBlend, 1.0, smoothstep(slopeThreshold - 0.2, slopeThreshold, slope)); // More rock on steep slopes
+    rockBlend *= (1.0 - snowBlend); // No rock where there's snow
+    
+    // Ensure grass has priority in lower, flatter areas
+    float grassBlend = 1.0 - snowBlend - rockBlend;
+    
+    // Sample textures with adjusted tiling
+    vec2 scaledCoords = TexCoords * 16.0; // Increased tiling for more detail
+    vec4 snowColor = texture(snowTexture, scaledCoords);
+    vec4 rockColor = texture(rockTexture, scaledCoords);
+    vec4 grassColor = texture(grassTexture, scaledCoords);
+    
+    // Blend colors with adjusted weights
+    vec4 baseColor = grassColor;
+    baseColor = mix(baseColor, rockColor, rockBlend * 0.8); // Reduced rock influence
+    baseColor = mix(baseColor, snowColor, snowBlend);
+    
+    // Rest of the lighting calculations remain the same
+    vec3 normal = normalize(Normal);
+    vec3 lightDir = normalize(lightPos - FragPos);
+    vec3 viewDir = normalize(viewPos - FragPos);
+    
+    float diff = max(dot(normal, lightDir), 0.0);
+    vec3 ambient = vec3(0.3);
+    vec3 diffuse = vec3(diff);
+    
+    vec3 reflectDir = reflect(-lightDir, normal);
+    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
+    vec3 specular = vec3(0.2 * spec);
+    
+    vec3 lighting = ambient + diffuse + specular;
+    FragColor = vec4(baseColor.rgb * lighting, 1.0);
+}
     )glsl";
 
     unsigned int vertexShader = compileShader(vertexShaderSource, GL_VERTEX_SHADER);

@@ -1,62 +1,165 @@
 #include <cmath>
 #include <vector>
+#include <random>
+#include <algorithm>
 
-class PerlinNoise
-{
+class PerlinNoise {
 public:
-    PerlinNoise()
-    {
+    PerlinNoise(unsigned int seed = 123) {
+        // Initialize permutation vector with new seeding capability
         p.resize(512);
-        for (int i = 0; i < 256; ++i)
-            p[256 + i] = p[i] = permutation[i];
+        std::iota(p.begin(), p.begin() + 256, 0); // Fill with 0..255
+        
+        // Seed the random generator
+        std::default_random_engine engine(seed);
+        std::shuffle(p.begin(), p.begin() + 256, engine);
+        
+        // Duplicate the permutation vector
+        for (int i = 0; i < 256; ++i) {
+            p[256 + i] = p[i];
+        }
     }
 
-    // Perlin noise function with octaves and persistence
-    float noise(float x, float y, int octaves, float persistence)
-    {
+    // Classic Perlin noise (2D)
+    float noise(float x, float y, int octaves, float persistence) {
         float total = 0.0f;
-        float maxValue = 0.0f; // Used for normalization
+        float maxValue = 0.0f;
         float frequency = 1.0f;
         float amplitude = 1.0f;
 
-        for (int i = 0; i < octaves; ++i)
-        {
+        for (int i = 0; i < octaves; ++i) {
             total += singleNoise(x * frequency, y * frequency) * amplitude;
-
             maxValue += amplitude;
-
             amplitude *= persistence;
-            frequency *= 2.0f; // Increase frequency for next octave
+            frequency *= 2.0f;
         }
 
-        return total / maxValue; // Normalize to [0, 1]
+        return total / maxValue;
+    }
+
+    // 3D Perlin noise
+    float noise(float x, float y, float z, int octaves, float persistence) {
+        float total = 0.0f;
+        float maxValue = 0.0f;
+        float frequency = 1.0f;
+        float amplitude = 1.0f;
+
+        for (int i = 0; i < octaves; ++i) {
+            total += singleNoise3D(x * frequency, y * frequency, z * frequency) * amplitude;
+            maxValue += amplitude;
+            amplitude *= persistence;
+            frequency *= 2.0f;
+        }
+
+        return total / maxValue;
+    }
+
+    // Ridged noise for mountain ranges
+    float ridgedNoise(float x, float y, int octaves, float persistence) {
+        float total = 0.0f;
+        float maxValue = 0.0f;
+        float frequency = 1.0f;
+        float amplitude = 1.0f;
+        float weight = 1.0f;
+
+        for (int i = 0; i < octaves; ++i) {
+            float signal = singleNoise(x * frequency, y * frequency);
+            signal = 2.0f * std::abs(signal - 0.5f); // Transform to create ridges
+            signal = pow(1.0f - signal, 2.0f);       // Make ridges sharper with quadratic falloff
+            
+            // Weight successive octaves by previous signal
+            signal *= weight;
+            weight = signal * 2.0f;
+            weight = std::clamp(weight, 0.0f, 1.0f);
+
+            total += signal * amplitude;
+            maxValue += amplitude;
+            amplitude *= persistence;
+            frequency *= 2.0f;
+        }
+
+        return total / maxValue;
+    }
+
+    // Billow noise for cloud-like formations
+    float billow(float x, float y, int octaves, float persistence) {
+        float total = 0.0f;
+        float maxValue = 0.0f;
+        float frequency = 1.0f;
+        float amplitude = 1.0f;
+
+        for (int i = 0; i < octaves; ++i) {
+            float signal = singleNoise(x * frequency, y * frequency);
+            signal = 2.0f * std::abs(signal - 0.5f); // Create billowy appearance
+            
+            total += signal * amplitude;
+            maxValue += amplitude;
+            amplitude *= persistence;
+            frequency *= 2.0f;
+        }
+
+        return total / maxValue;
+    }
+
+    // Voronoi (cellular) noise
+    float voronoi(float x, float y, float frequency) {
+        x *= frequency;
+        y *= frequency;
+        
+        int xi = (int)std::floor(x);
+        int yi = (int)std::floor(y);
+        
+        float minDist = 1000.0f;
+        
+        // Check surrounding cells
+        for (int i = -1; i <= 1; i++) {
+            for (int j = -1; j <= 1; j++) {
+                int cell_x = xi + i;
+                int cell_y = yi + j;
+                
+                // Generate a pseudo-random point in the cell
+                float point_x = cell_x + hash2D(cell_x, cell_y) / 255.0f;
+                float point_y = cell_y + hash2D(cell_y, cell_x) / 255.0f;
+                
+                float dx = x - point_x;
+                float dy = y - point_y;
+                float dist = std::sqrt(dx * dx + dy * dy);
+                
+                minDist = std::min(minDist, dist);
+            }
+        }
+        
+        return minDist;
     }
 
 private:
     std::vector<int> p;
-
     static const int permutation[256];
 
-    float fade(float t)
-    {
-        return t * t * t * (t * (t * 6 - 15) + 10);
+    float fade(float t) {
+        return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
     }
 
-    float lerp(float t, float a, float b)
-    {
+    float lerp(float t, float a, float b) {
         return a + t * (b - a);
     }
 
-    float grad(int hash, float x, float y)
-    {
+    float grad(int hash, float x, float y) {
         int h = hash & 3;
         float u = h < 2 ? x : y;
         float v = h < 2 ? y : x;
         return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
     }
 
-    float singleNoise(float x, float y)
-    {
+    // 3D gradient function
+    float grad3D(int hash, float x, float y, float z) {
+        int h = hash & 15;
+        float u = h < 8 ? x : y;
+        float v = h < 4 ? y : h == 12 || h == 14 ? x : z;
+        return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
+    }
+
+    float singleNoise(float x, float y) {
         int X = (int)std::floor(x) & 255;
         int Y = (int)std::floor(y) & 255;
 
@@ -71,9 +174,50 @@ private:
         int ba = p[p[X + 1] + Y];
         int bb = p[p[X + 1] + Y + 1];
 
-        float res = lerp(v, lerp(u, grad(aa, x, y), grad(ba, x - 1, y)),
-                         lerp(u, grad(ab, x, y - 1), grad(bb, x - 1, y - 1)));
-        return (res + 1.0f) / 2.0f; // Normalize to [0, 1]
+        float res = lerp(v,
+            lerp(u, grad(aa, x, y), grad(ba, x - 1, y)),
+            lerp(u, grad(ab, x, y - 1), grad(bb, x - 1, y - 1)));
+
+        return (res + 1.0f) / 2.0f;
+    }
+
+    float singleNoise3D(float x, float y, float z) {
+        int X = (int)std::floor(x) & 255;
+        int Y = (int)std::floor(y) & 255;
+        int Z = (int)std::floor(z) & 255;
+
+        x -= std::floor(x);
+        y -= std::floor(y);
+        z -= std::floor(z);
+
+        float u = fade(x);
+        float v = fade(y);
+        float w = fade(z);
+
+        int A  = p[X] + Y;
+        int AA = p[A] + Z;
+        int AB = p[A + 1] + Z;
+        int B  = p[X + 1] + Y;
+        int BA = p[B] + Z;
+        int BB = p[B + 1] + Z;
+
+        float res = lerp(w, lerp(v, lerp(u, grad3D(p[AA], x, y, z),
+                                          grad3D(p[BA], x-1, y, z)),
+                                   lerp(u, grad3D(p[AB], x, y-1, z),
+                                          grad3D(p[BB], x-1, y-1, z))),
+                           lerp(v, lerp(u, grad3D(p[AA+1], x, y, z-1),
+                                          grad3D(p[BA+1], x-1, y, z-1)),
+                                   lerp(u, grad3D(p[AB+1], x, y-1, z-1),
+                                          grad3D(p[BB+1], x-1, y-1, z-1))));
+        
+        return (res + 1.0f) / 2.0f;
+    }
+
+    // Hash function for Voronoi noise
+    int hash2D(int x, int y) {
+        int hash = x + y * 131;
+        hash = (hash << 13) ^ hash;
+        return (hash * (hash * hash * 15731 + 789221) + 1376312589) & 0x7fffffff;
     }
 };
 

@@ -1,4 +1,4 @@
-# TerraGPT: LLM-Driven Procedural Terrain Generator
+# Confluent AI: LLM-Driven Procedural Terrain Generator
 
 An advanced procedural terrain generation system built using C++ and OpenGL, featuring real-time terrain modification through natural language input using LLM.
 

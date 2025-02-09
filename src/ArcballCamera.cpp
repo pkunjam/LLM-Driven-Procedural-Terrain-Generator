@@ -8,7 +8,6 @@
 #include <GL/gl.h>
 #include <GL/glu.h>
 #endif
-#include <glad/glad.h>
 
 class ArcballCamera
 {

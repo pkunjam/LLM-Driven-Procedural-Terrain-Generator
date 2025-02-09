@@ -3,45 +3,54 @@ project(OpenGLProject)
 
 set(CMAKE_CXX_STANDARD 17)
 
-# Include GLFW
-add_subdirectory(libs/GLFW)
+# Add glad as a library
+add_library(glad src/glad.c)
 
-# Include GLAD
-add_library(glad libs/GLAD/src/glad.c)
-target_include_directories(glad PUBLIC libs/GLAD/include)
+find_package(glfw3 3.4 REQUIRED)
 
-# Add source files
+# Add all source files.
 set(SOURCES
     src/main.cpp
-    # ImGui source files
+    src/ArcballCamera.cpp
+    # ImGui source files.
     libs/imgui/imgui.cpp
     libs/imgui/imgui_draw.cpp
     libs/imgui/imgui_tables.cpp
     libs/imgui/imgui_widgets.cpp
-    # ImGui backend files
+    # ImGui backend files.
     libs/imgui/backends/imgui_impl_glfw.cpp
     libs/imgui/backends/imgui_impl_opengl3.cpp
 )
 
 add_executable(OpenGLProject ${SOURCES})
 
-# Include directories
+# Include directories for your project.
 target_include_directories(OpenGLProject PRIVATE
-    libs/GLFW/include
-    libs/GLAD/include
-    glm
+    glfw/3.4/include
+    glm/
     src/
-    include
+    include/
     libs/imgui
     libs/imgui/backends
 )
 
-# Link libraries
-target_link_libraries(OpenGLProject PRIVATE glfw glad)
+include_directories(${CMAKE_SOURCE_DIR}/glad/include)
+include_directories(${CMAKE_SOURCE_DIR}/glfw/3.4/include)
 
-# Add stb_image
-target_include_directories(OpenGLProject PRIVATE src)
+# Link libraries.
+# If the imported target is glfw3::glfw, use that instead.
+target_link_libraries(OpenGLProject PRIVATE glad glfw)
 
-# Macbook inclusion (if needed)
+# On macOS, link the required system frameworks.
+if(APPLE)
+    target_link_libraries(OpenGLProject PRIVATE
+        "-framework OpenGL"
+        "-framework Cocoa"
+        "-framework IOKit"
+        "-framework CoreVideo"
+    )
+endif()
+
+# Link CURL if required.
 find_package(CURL REQUIRED)
 target_link_libraries(OpenGLProject PRIVATE curl)

@@ -197,7 +197,7 @@ std::string buildSystemPrompt()
     std::string systemPrompt = R"(
 You are an assistant integrated into a procedural terrain generation system built using C++ and OpenGL.
 The system uses several terrain parameters, and the user input determines how the terrain is modified. Your task is to interpret natural
-language inputs and adjust the terrain parameters accordingly, making moderate adjustments based on the user's intent.
+language inputs and adjust the terrain parameters accordingly based on the user's intent.
 
 The terrain is generated using Perlin noise. The parameters you need to adjust based on user input are:
 
@@ -208,8 +208,6 @@ The terrain is generated using Perlin noise. The parameters you need to adjust b
 - baseFrequency (Float): Controls the overall scale of the terrain features. Higher values make the features more frequent (smaller hills). Current value is )" + std::to_string(::baseFrequency) + R"(.
 
 Remember the user's previous instructions and adjust parameters accordingly. If the user wants to revert changes or extend on previous commands, handle that appropriately.
-
-When adjusting parameters, make moderate changes based on the user's input, unless the user explicitly requests significant changes. Avoid changing parameters by large amounts unless necessary.
 
 You will extract terrain parameters from user input and call the updateTerrain function accordingly. Do not provide any explanations or additional text.
 )";
@@ -263,7 +261,8 @@ std::string sendOpenAIRequest(const std::string& userInput)
 
         // Prepare the JSON payload
         nlohmann::json jsonPayload;
-        jsonPayload["model"] = "gpt-4";
+        jsonPayload["model"] = "o3-mini";
+        jsonPayload["reasoning_effort"] = "high";
         jsonPayload["messages"] = conversationHistory;
 
         // Add function definitions for function calling

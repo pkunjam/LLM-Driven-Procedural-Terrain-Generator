@@ -8,10 +8,15 @@ add_library(glad src/glad.c)
 
 find_package(glfw3 3.4 REQUIRED)
 
-# Add all source files.
+# Add all source files including our modules and stb_image implementation.
 set(SOURCES
     src/main.cpp
     src/ArcballCamera.cpp
+    src/ChatInterface.cpp
+    src/Input.cpp
+    src/Terrain.cpp
+    src/Renderer.cpp
+    src/stb_image.cpp          # Added to provide STB_IMAGE_IMPLEMENTATION
     # ImGui source files.
     libs/imgui/imgui.cpp
     libs/imgui/imgui_draw.cpp
@@ -38,7 +43,6 @@ include_directories(${CMAKE_SOURCE_DIR}/glad/include)
 include_directories(${CMAKE_SOURCE_DIR}/glfw/3.4/include)
 
 # Link libraries.
-# If the imported target is glfw3::glfw, use that instead.
 target_link_libraries(OpenGLProject PRIVATE glad glfw)
 
 # On macOS, link the required system frameworks.

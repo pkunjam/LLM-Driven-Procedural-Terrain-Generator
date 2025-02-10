@@ -1,86 +1,74 @@
-#include <glm/glm.hpp>
+// ArcballCamera.cpp
+#include "ArcballCamera.h"
 #include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#if defined(__APPLE__)
-#include <OpenGL/gl.h>
-#include <OpenGL/glu.h>
-#else
-#include <GL/gl.h>
-#include <GL/glu.h>
-#endif
+#include <cmath>
 
-class ArcballCamera
+ArcballCamera::ArcballCamera(const glm::vec3& target, float distance, float yaw, float pitch)
+    : Target(target), m_distance(distance), m_yaw(yaw), m_pitch(pitch)
 {
-public:
-    glm::vec3 Target; // The point around which the camera orbits
-    float Distance;   // Distance from the target
-    float Yaw;        // Horizontal angle
-    float Pitch;      // Vertical angle
-    float ZoomSpeed;
-    float PanSpeed;
-    float RotationSpeed;
+    updateCameraPosition();
+}
 
-    ArcballCamera(glm::vec3 target, float distance, float yaw, float pitch)
-        : Target(target), Distance(distance), Yaw(yaw), Pitch(pitch), ZoomSpeed(1.0f), PanSpeed(0.005f), RotationSpeed(0.1f) {}
+glm::mat4 ArcballCamera::GetViewMatrix() const
+{
+    // Typically use glm::lookAt with camera position, target, and up vector.
+    return glm::lookAt(m_position, Target, glm::vec3(0.0f, 1.0f, 0.0f));
+}
 
-    glm::mat4 GetViewMatrix()
+glm::vec3 ArcballCamera::GetCameraPosition() const
+{
+    return m_position;
+}
+
+glm::vec3 ArcballCamera::GetCameraFront() const
+{
+    // Compute and return the forward vector (from position to target)
+    return glm::normalize(Target - m_position);
+}
+
+void ArcballCamera::ProcessMouseMovement(float xOffset, float yOffset, bool constrainPitch)
+{
+    // Example implementation. Adjust sensitivity as needed.
+    const float sensitivity = 0.1f;
+    m_yaw   += xOffset * sensitivity;
+    m_pitch += yOffset * sensitivity;
+
+    if (constrainPitch)
     {
-        glm::vec3 direction;
-        direction.x = cos(glm::radians(Yaw)) * cos(glm::radians(Pitch));
-        direction.y = sin(glm::radians(Pitch));
-        direction.z = sin(glm::radians(Yaw)) * cos(glm::radians(Pitch));
-
-        glm::vec3 position = Target - direction * Distance;
-        return glm::lookAt(position, Target, glm::vec3(0.0f, 1.0f, 0.0f));
+        if (m_pitch > 89.0f)
+            m_pitch = 89.0f;
+        if (m_pitch < -89.0f)
+            m_pitch = -89.0f;
     }
 
-    void ProcessMouseMovement(float xOffset, float yOffset, bool rotate)
-    {
-        if (rotate)
-        {
-            Yaw += xOffset * RotationSpeed;
-            Pitch += yOffset * RotationSpeed;
-            Pitch = glm::clamp(Pitch, -89.0f, 89.0f); // Avoid flipping the camera
-        }
-    }
+    updateCameraPosition();
+}
 
-    void ProcessMouseScroll(float yOffset)
-    {
-        Distance -= yOffset * ZoomSpeed;
-        Distance = glm::clamp(Distance, 1.0f, 50.0f); // Set min and max zoom levels
-    }
+void ArcballCamera::ProcessMousePan(float xOffset, float yOffset)
+{
+    // Example implementation for panning. Adjust pan speed as needed.
+    const float panSpeed = 0.005f;
+    Target += glm::vec3(-xOffset * panSpeed, yOffset * panSpeed, 0.0f);
+    updateCameraPosition();
+}
 
-    void ProcessMousePan(float xOffset, float yOffset)
-    {
-        // Get the right vector (camera's local x-axis direction) based on the current yaw and pitch
-        glm::vec3 right = glm::normalize(glm::cross(GetCameraFront(), glm::vec3(0.0f, 1.0f, 0.0f)));
+void ArcballCamera::ProcessMouseScroll(float yOffset)
+{
+    // Example implementation for zooming.
+    m_distance -= yOffset * 0.1f;
+    if (m_distance < 0.1f)
+        m_distance = 0.1f;
+    updateCameraPosition();
+}
 
-        // The up vector is always the global up vector (0.0, 1.0, 0.0)
-        glm::vec3 up(0.0f, 1.0f, 0.0f);
+void ArcballCamera::updateCameraPosition()
+{
+    // Convert yaw and pitch from degrees to radians.
+    float yawRad   = glm::radians(m_yaw);
+    float pitchRad = glm::radians(m_pitch);
 
-        // Adjust the camera's target based on the pan direction
-        Target += -right * xOffset * PanSpeed; // Move left/right based on right vector
-        Target += up * yOffset * PanSpeed;     // Move up/down based on up vector
-    }
-
-    // Helper function to get the camera's forward direction (normalized front vector)
-    glm::vec3 GetCameraFront() const
-    {
-        glm::vec3 direction;
-        direction.x = cos(glm::radians(Yaw)) * cos(glm::radians(Pitch));
-        direction.y = sin(glm::radians(Pitch));
-        direction.z = sin(glm::radians(Yaw)) * cos(glm::radians(Pitch));
-
-        return glm::normalize(direction);
-    }
-
-    glm::vec3 GetCameraPosition() const
-    {
-        glm::vec3 direction;
-        direction.x = cos(glm::radians(Yaw)) * cos(glm::radians(Pitch));
-        direction.y = sin(glm::radians(Pitch));
-        direction.z = sin(glm::radians(Yaw)) * cos(glm::radians(Pitch));
-
-        return Target - direction * Distance;
-    }
-};
+    // Spherical coordinates to Cartesian conversion.
+    m_position.x = Target.x + m_distance * cos(pitchRad) * cos(yawRad);
+    m_position.y = Target.y + m_distance * sin(pitchRad);
+    m_position.z = Target.z + m_distance * cos(pitchRad) * sin(yawRad);
+}
